@@ -513,21 +513,6 @@ personalities: {
 - Emphasize "never use markdown" to get clean text
 - Give distinctive speech patterns or catchphrases
 
-## Resume Highlights
-
-This project demonstrates the following skills (great for your resume):
-
-### Backend Skills
-- **Node.js & Express** - Building REST APIs, handling HTTP requests
-- **Chess Logic** - Implementing game rules with chess.js library
-- **Stockfish Integration** - UCI protocol communication via node-uci
-- **External API Integration** - Groq LLM API with error handling
-
-### Frontend Skills
-- **Vanilla JavaScript** - DOM manipulation, event handling, async/await
-- **CSS Styling** - Tailwind CSS, custom themes, responsive design
-- **Web APIs** - Speech Synthesis, Web Audio API
-- **SVG Graphics** - Chess piece rendering
 
 ### System Skills
 - **Game Logic** - Turn management, timer systems, move validation
