@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Chatty Carl - Funny Chess</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Color+Emoji&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -27,40 +30,75 @@
     </div>
 
     <div class="flex flex-col xl:flex-row gap-6 justify-center items-start">
-      <div class="bg-gray-800 rounded-lg p-4 shadow-xl">
+      <!-- Left Panel - Board -->
+      <div class="card">
         <div class="flex items-center justify-between mb-3">
           <div class="flex gap-2">
-            <button id="newGameBtn" class="bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition">
-              New Game
+            <button id="newGameBtn" class="btn btn-green">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+              </svg>
+              New
             </button>
-            <button id="flipBoardBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition">
-              Flip Board
+            <button id="flipBoardBtn" class="btn btn-blue">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Flip
             </button>
-            <button id="undoBtn" class="bg-yellow-600 hover:bg-yellow-700 text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition">
+            <button id="undoBtn" class="btn btn-yellow">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+              </svg>
               Undo
             </button>
           </div>
           <div class="flex gap-2">
-            <button id="hintBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition">
+            <button id="hintBtn" class="btn btn-purple">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+              </svg>
               Hint
             </button>
           </div>
         </div>
-        
-        <div id="board" class="board"></div>
-        
-        <div class="mt-4 space-y-3">
-          <div class="flex items-center justify-center">
-            <div id="whiteTimer" class="bg-gray-700 px-4 py-2 rounded-lg text-white font-mono text-lg font-bold w-24 text-center">5:00</div>
-            <span class="mx-3 text-gray-400">vs</span>
-            <div id="blackTimer" class="bg-gray-700 px-4 py-2 rounded-lg text-white font-mono text-lg font-bold w-24 text-center">5:00</div>
+
+        <div class="flex items-start gap-2">
+          <!-- Captured pieces (black - what player lost) -->
+          <div class="w-12 flex flex-col justify-center">
+            <div class="captured-pieces" id="capturedBlack"></div>
           </div>
           
-          <div class="px-4">
-            <div class="flex justify-between text-xs text-gray-400 mb-1">
-              <span>Black advantage</span>
-              <span>Even</span>
-              <span>White advantage</span>
+          <div id="board" class="board"></div>
+          
+          <!-- Captured pieces (white - what Carl lost) -->
+          <div class="w-12 flex flex-col justify-center">
+            <div class="captured-pieces" id="capturedWhite"></div>
+          </div>
+        </div>
+        
+        <div class="mt-4 space-y-3">
+          <!-- Timers & Material -->
+          <div class="flex items-center justify-center gap-4">
+            <div class="flex items-center gap-2">
+              <span class="text-gray-400 text-sm">♔</span>
+              <div id="whiteTimer" class="bg-gray-700 px-4 py-2 rounded-lg text-white font-mono text-lg font-bold w-24 text-center">5:00</div>
+            </div>
+            <div class="material-advantage" id="materialAdvantage">
+              <span class="even">=</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div id="blackTimer" class="bg-gray-700 px-4 py-2 rounded-lg text-white font-mono text-lg font-bold w-24 text-center">5:00</div>
+              <span class="text-gray-400 text-sm">♚</span>
+            </div>
+          </div>
+          
+          <!-- Evaluation bar -->
+          <div class="eval-bar">
+            <div class="flex justify-between text-xs text-gray-400 mb-2">
+              <span>Black</span>
+              <span>Evaluation</span>
+              <span>White</span>
             </div>
             <div class="h-3 bg-gray-700 rounded-full overflow-hidden relative">
               <div id="evalBarCenter" class="absolute left-1/2 top-0 bottom-0 w-0.5 bg-gray-500"></div>
@@ -69,13 +107,14 @@
             <div id="evalScore" class="text-center text-sm text-gray-400 mt-1">+0.0</div>
           </div>
           
+          <!-- Controls -->
           <div class="flex flex-wrap gap-2 justify-center">
             <select id="timeControl" class="bg-gray-700 text-white px-2 py-1 rounded-lg text-sm">
-              <option value="180">3+0 Blitz</option>
-              <option value="300">5+0 Rapid</option>
-              <option value="600" selected>10+0</option>
-              <option value="900">15+0</option>
-              <option value="0">Unlimited</option>
+              <option value="180">⚡ 3+0</option>
+              <option value="300">⚡ 5+0</option>
+              <option value="600" selected>⏱️ 10+0</option>
+              <option value="900">⏱️ 15+0</option>
+              <option value="0">♾️ Unlimited</option>
             </select>
             
             <select id="difficultySelect" class="bg-gray-700 text-white px-2 py-1 rounded-lg text-sm">
@@ -94,94 +133,159 @@
             </select>
           </div>
           
-          <div class="flex items-center justify-center gap-4">
-            <label class="flex items-center gap-2 text-sm text-gray-400">
-              <input type="checkbox" id="showCoordinates" checked class="rounded bg-gray-700 border-gray-600">
-              Coordinates
+          <!-- Options -->
+          <div class="flex items-center justify-center gap-6">
+            <label class="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
+              <input type="checkbox" id="showCoordinates" checked>
+              📍 Coordinates
             </label>
-            <label class="flex items-center gap-2 text-sm text-gray-400">
-              <input type="checkbox" id="soundEffects" class="rounded bg-gray-700 border-gray-600">
-              Sound
+            <label class="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
+              <input type="checkbox" id="soundEffects">
+              🔊 Sound
             </label>
-            <label class="flex items-center gap-2 text-sm text-gray-400">
-              <input type="checkbox" id="explainMoves" class="rounded bg-gray-700 border-gray-600">
-              Explain Moves
+            <label class="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
+              <input type="checkbox" id="explainMoves">
+              💬 Explain
             </label>
           </div>
         </div>
       </div>
 
-      <div class="flex-1 w-full xl:w-auto space-y-4">
-        <div class="bg-gray-800 rounded-lg p-4 shadow-xl">
-          <div class="flex items-center justify-between mb-3">
-            <h2 class="text-xl font-bold text-white">Your Opponent</h2>
-            <select id="personalitySelect" class="bg-gray-700 text-white px-3 py-1 rounded-lg text-sm">
-              <option value="sassy">Sassy Sarah</option>
-              <option value="grandma">Grandma Gladys</option>
-              <option value="commentator">Commentator Carl</option>
-              <option value="trashTalker">Trash Talker Tony</option>
-              <option value="confused">Confused Carl</option>
-            </select>
-          </div>
-          
-          <div id="opponentName" class="text-green-400 font-semibold mb-2">Sassy Sarah</div>
-          
-          <div class="bg-gray-700 rounded-lg p-3 min-h-[100px]">
-            <div id="opponentComment" class="text-gray-200 text-sm">
-              Let's play! I'll crush you! ♟️
+      <!-- Right Panel - Tabs -->
+      <div class="flex-1 w-full xl:w-auto">
+        <div class="card">
+          <!-- Opponent Header -->
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-3">
+              <div class="opponent-avatar" id="opponentAvatar">😏</div>
+              <div>
+                <select id="personalitySelect" class="bg-gray-700 text-white px-3 py-1 rounded-lg text-sm font-semibold">
+                  <option value="sassy">Sassy Sarah</option>
+                  <option value="grandma">Grandma Gladys</option>
+                  <option value="commentator">Commentator Carl</option>
+                  <option value="trashTalker">Trash Talker Tony</option>
+                  <option value="confused">Confused Carl</option>
+                </select>
+              </div>
             </div>
-          </div>
-          
-          <div id="moveExplanation" class="mt-2 bg-blue-900/50 rounded-lg p-2 text-blue-200 text-sm hidden">
-          </div>
-          
-          <div class="mt-3 flex items-center gap-3">
-            <button id="voiceToggle" class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-gray-700 hover:bg-gray-600 text-white transition">
-              <svg id="voiceIcon" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+            <div id="loadingIndicator" class="hidden text-yellow-400 text-sm flex items-center gap-2">
+              <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
-              <span id="voiceBtnText">Voice</span>
-            </button>
-            <label class="flex items-center gap-2 text-sm text-gray-400">
-              <input type="checkbox" id="autoVoice" class="rounded bg-gray-700 border-gray-600">
-              Auto
-            </label>
+              <span>Thinking...</span>
+            </div>
           </div>
-          
-          <div id="loadingIndicator" class="hidden mt-2 text-yellow-400 text-sm flex items-center gap-2">
-            <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            <span>Carl is thinking...</span>
-          </div>
-        </div>
 
-        <div class="bg-gray-800 rounded-lg p-4 shadow-xl">
-          <div class="flex items-center justify-between mb-2">
-            <h3 class="text-lg font-bold text-white">Game Status</h3>
-            <div id="mistakeCounter" class="text-sm hidden">
-              <span class="text-yellow-400">Mistakes: <span id="mistakeCount">0</span></span>
-              <span class="text-red-400 ml-2">Blunders: <span id="blunderCount">0</span></span>
+          <!-- Tabs -->
+          <div class="tabs">
+            <button class="tab active" data-tab="chat">
+              💬 Chat
+            </button>
+            <button class="tab" data-tab="moves">
+              ♟️ Moves
+            </button>
+            <button class="tab" data-tab="stats">
+              📊 Stats
+            </button>
+          </div>
+
+          <!-- Tab Content: Chat -->
+          <div id="tab-chat" class="tab-content active">
+            <div class="comment-box">
+              <div id="opponentComment" class="text-gray-200 text-sm">
+                Let's play! I'll crush you! ♟️
+              </div>
+            </div>
+            
+            <div id="moveExplanation" class="mt-2 bg-blue-900/50 rounded-lg p-2 text-blue-200 text-sm hidden">
+            </div>
+            
+            <div class="mt-3 flex items-center gap-3 flex-wrap">
+              <button id="voiceToggle" class="btn btn-gray">
+                <svg id="voiceIcon" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                </svg>
+                <span id="voiceBtnText">Voice</span>
+              </button>
+              <select id="voiceType" class="bg-gray-700 text-white px-2 py-1 rounded-lg text-sm">
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+              </select>
+              <button id="testVoiceBtn" class="btn btn-gray text-xs py-1">
+                Test
+              </button>
+              <label class="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
+                <input type="checkbox" id="autoVoice" class="rounded">
+                Auto
+              </label>
+              <label class="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
+                <input type="checkbox" id="announceMoves" checked>
+                Announce
+              </label>
             </div>
           </div>
-          <div id="gameStatus" class="text-gray-300">
-            <div class="flex justify-between mb-1">
-              <span>Turn:</span>
-              <span id="turnDisplay" class="text-white font-semibold">White (Your turn)</span>
+
+          <!-- Tab Content: Moves -->
+          <div id="tab-moves" class="tab-content">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-sm text-gray-400">Game Status:</span>
+              <div id="mistakeCounter" class="text-sm hidden">
+                <span class="text-yellow-400">M: <span id="mistakeCount">0</span></span>
+                <span class="text-red-400 ml-2">B: <span id="blunderCount">0</span></span>
+              </div>
             </div>
-            <div id="checkIndicator" class="hidden text-red-400 font-semibold">
+            
+            <div id="turnDisplay" class="text-white font-semibold mb-2">White (Your turn)</div>
+            
+            <div id="checkIndicator" class="hidden text-red-400 font-semibold mb-2">
               ⚠️ Check!
             </div>
+            
             <div id="gameOverDisplay" class="hidden mt-2 text-yellow-400 font-bold text-lg">
             </div>
+            
+            <h4 class="text-sm font-semibold text-gray-400 mt-4 mb-2">Move History</h4>
+            <div id="moveHistory" class="text-gray-300 text-sm h-48 overflow-y-auto font-mono bg-gray-800/50 rounded-lg p-3">
+              <span class="text-gray-500">No moves yet...</span>
+            </div>
           </div>
-        </div>
 
-        <div class="bg-gray-800 rounded-lg p-4 shadow-xl">
-          <h3 class="text-lg font-bold text-white mb-2">Move History</h3>
-          <div id="moveHistory" class="text-gray-300 text-sm h-40 overflow-y-auto font-mono">
-            <span class="text-gray-500">No moves yet...</span>
+          <!-- Tab Content: Stats -->
+          <div id="tab-stats" class="tab-content">
+            <div class="grid grid-cols-3 gap-3 mb-4">
+              <div class="stat-card">
+                <div class="stat-value text-white" id="totalGames">0</div>
+                <div class="stat-label">Games</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value text-green-400" id="totalWins">0</div>
+                <div class="stat-label">Wins</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value text-red-400" id="totalLosses">0</div>
+                <div class="stat-label">Losses</div>
+              </div>
+            </div>
+            
+            <button id="viewHistoryBtn" class="btn btn-blue w-full justify-center mb-4">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              View Game History
+            </button>
+
+            <h4 class="text-sm font-semibold text-gray-400 mb-2">Quick Settings</h4>
+            <div class="space-y-2">
+              <div class="flex items-center justify-between text-sm">
+                <span class="text-gray-400">Sound Effects</span>
+                <input type="checkbox" id="soundEffectsAlt">
+              </div>
+              <div class="flex items-center justify-between text-sm">
+                <span class="text-gray-400">Explain Moves</span>
+                <input type="checkbox" id="explainMovesAlt">
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -189,14 +293,74 @@
   </div>
 
   <!-- Promotion Dialog -->
-  <div id="promotionDialog" class="fixed inset-0 bg-black/70 flex items-center justify-center hidden z-50">
-    <div class="bg-gray-800 rounded-lg p-6 shadow-2xl">
+  <div id="promotionDialog" class="fixed inset-0 modal-overlay flex items-center justify-center hidden z-50">
+    <div class="modal p-6">
       <h3 class="text-xl font-bold text-white mb-4 text-center">Promote to:</h3>
       <div class="flex gap-4 justify-center" id="promotionOptions">
         <button class="promotion-piece text-5xl hover:scale-110 transition" data-piece="q">♛</button>
         <button class="promotion-piece text-5xl hover:scale-110 transition" data-piece="r">♜</button>
         <button class="promotion-piece text-5xl hover:scale-110 transition" data-piece="b">♝</button>
         <button class="promotion-piece text-5xl hover:scale-110 transition" data-piece="n">♞</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Game History Modal -->
+  <div id="historyModal" class="fixed inset-0 modal-overlay flex items-center justify-center hidden z-50">
+    <div class="modal p-6 max-w-2xl w-full max-h-[80vh] overflow-hidden flex flex-col">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-xl font-bold text-white">Game History</h3>
+        <button id="closeHistoryBtn" class="text-gray-400 hover:text-white text-2xl">&times;</button>
+      </div>
+      <div id="gamesList" class="flex-1 overflow-y-auto space-y-3">
+        <p class="text-gray-400">No games yet...</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Analysis Modal -->
+  <div id="analysisModal" class="fixed inset-0 modal-overlay flex items-center justify-center hidden z-50">
+    <div class="modal p-6 max-w-3xl w-full max-h-[85vh] overflow-hidden flex flex-col">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-xl font-bold text-white">Game Analysis</h3>
+        <button id="closeAnalysisBtn" class="text-gray-400 hover:text-white text-2xl">&times;</button>
+      </div>
+      
+      <div id="analysisContent" class="flex-1 overflow-y-auto space-y-4">
+        <div class="grid grid-cols-2 gap-4">
+          <div class="stat-card">
+            <div class="stat-value text-green-400" id="analysisAccuracy">--%</div>
+            <div class="stat-label">Accuracy</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value text-blue-400" id="analysisOpening">--</div>
+            <div class="stat-label">Opening</div>
+          </div>
+        </div>
+        
+        <div class="grid grid-cols-2 gap-4">
+          <div class="stat-card">
+            <div class="stat-value text-yellow-400" id="analysisMistakes">0</div>
+            <div class="stat-label">Mistakes</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value text-red-400" id="analysisBlunders">0</div>
+            <div class="stat-label">Blunders</div>
+          </div>
+        </div>
+
+        <canvas id="evalChart" class="w-full h-40 bg-gray-700/50 rounded-lg"></canvas>
+        
+        <div>
+          <h4 class="font-bold text-white mb-2">Move Analysis</h4>
+          <div id="moveAnalysisList" class="space-y-1 text-sm max-h-60 overflow-y-auto font-mono bg-gray-800/50 rounded-lg p-3">
+          </div>
+        </div>
+      </div>
+      
+      <div id="analysisLoading" class="hidden py-8 text-center">
+        <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+        <p class="text-gray-400 mt-2">Analyzing game...</p>
       </div>
     </div>
   </div>

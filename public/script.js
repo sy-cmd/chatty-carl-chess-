@@ -25,6 +25,11 @@ let difficulty = 10;
 let pendingPromotion = null;
 let evaluation = 0;
 
+let capturedWhite = [];
+let capturedBlack = [];
+let mistakeCount = 0;
+let blunderCount = 0;
+
 const boardElement = document.getElementById('board');
 const turnDisplay = document.getElementById('turnDisplay');
 const checkIndicator = document.getElementById('checkIndicator');
@@ -33,7 +38,6 @@ const moveHistoryElement = document.getElementById('moveHistory');
 const opponentComment = document.getElementById('opponentComment');
 const loadingIndicator = document.getElementById('loadingIndicator');
 const personalitySelect = document.getElementById('personalitySelect');
-const opponentName = document.getElementById('opponentName');
 const newGameBtn = document.getElementById('newGameBtn');
 const flipBoardBtn = document.getElementById('flipBoardBtn');
 const undoBtn = document.getElementById('undoBtn');
@@ -53,24 +57,199 @@ const blunderCountEl = document.getElementById('blunderCount');
 const promotionDialog = document.getElementById('promotionDialog');
 const evalBar = document.getElementById('evalBar');
 const evalScore = document.getElementById('evalScore');
+const capturedWhiteEl = document.getElementById('capturedWhite');
+const capturedBlackEl = document.getElementById('capturedBlack');
+const materialAdvantageEl = document.getElementById('materialAdvantage');
+const opponentAvatar = document.getElementById('opponentAvatar');
 
 let voiceEnabled = false;
 const voiceToggle = document.getElementById('voiceToggle');
 const voiceBtnText = document.getElementById('voiceBtnText');
 const voiceIcon = document.getElementById('voiceIcon');
 const autoVoiceCheckbox = document.getElementById('autoVoice');
+const announceMovesCheckbox = document.getElementById('announceMoves');
 
-function speakText(text) {
+let audioContext = null;
+
+function getAudioContext() {
+  if (!audioContext) {
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  return audioContext;
+}
+
+function playTone(frequency, duration, type = 'sine', volume = 0.15) {
+  if (!soundEffectsCheckbox.checked) return;
+  
+  try {
+    const ctx = getAudioContext();
+    const oscillator = ctx.createOscillator();
+    const gainNode = ctx.createGain();
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(ctx.destination);
+    
+    oscillator.frequency.value = frequency;
+    oscillator.type = type;
+    
+    gainNode.gain.setValueAtTime(volume, ctx.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+    
+    oscillator.start();
+    oscillator.stop(ctx.currentTime + duration);
+  } catch (e) {
+    console.error('Audio error:', e);
+  }
+}
+
+function playArpeggio(notes, interval = 100) {
+  if (!soundEffectsCheckbox.checked) return;
+  notes.forEach((freq, i) => {
+    setTimeout(() => playTone(freq, 0.15, 'sine', 0.12), i * interval);
+  });
+}
+
+function playSound(type) {
+  if (!soundEffectsCheckbox.checked) return;
+  
+  const sounds = {
+    move: () => playTone(523.25, 0.08, 'sine', 0.1),
+    capture: () => playTone(261.63, 0.12, 'triangle', 0.15),
+    check: () => {
+      playTone(880, 0.1, 'sine', 0.12);
+      setTimeout(() => playTone(1108.73, 0.15, 'sine', 0.12), 100);
+    },
+    mistake: () => {
+      playTone(392, 0.15, 'square', 0.08);
+      setTimeout(() => playTone(349.23, 0.15, 'square', 0.08), 150);
+    },
+    blunder: () => {
+      playTone(311.13, 0.2, 'sawtooth', 0.08);
+      setTimeout(() => playTone(233.08, 0.25, 'sawtooth', 0.08), 200);
+    },
+    gameOver: () => playArpeggio([523.25, 659.25, 783.99, 1046.5], 120),
+    promotion: () => playArpeggio([783.99, 987.77, 1174.66], 80)
+  };
+  
+  if (sounds[type]) sounds[type]();
+}
+
+let selectedVoiceType = 'male';
+let availableVoices = [];
+let voicesLoaded = false;
+
+function loadVoices() {
+  availableVoices = window.speechSynthesis.getVoices();
+  voicesLoaded = availableVoices.length > 0;
+}
+
+if ('speechSynthesis' in window) {
+  window.speechSynthesis.onvoiceschanged = loadVoices;
+  setTimeout(loadVoices, 100);
+  setTimeout(loadVoices, 500);
+  setTimeout(loadVoices, 1000);
+}
+
+function getBestVoice(gender = 'male') {
+  if (!voicesLoaded) {
+    loadVoices();
+  }
+  
+  if (availableVoices.length === 0) return null;
+  
+  const malePatterns = ['david', 'daniel', 'mark', 'james', 'john', 'richard', 'paul', 'steve', 'will', 'harry', 'male', 'english'];
+  const femalePatterns = ['zira', 'susan', 'jenny', 'samantha', 'female', 'eva', 'sara', 'hazel'];
+  
+  if (gender === 'male') {
+    for (const pattern of malePatterns) {
+      const voice = availableVoices.find(v => v.name.toLowerCase().includes(pattern) && !v.name.toLowerCase().includes('female'));
+      if (voice) return voice;
+    }
+    for (const pattern of malePatterns) {
+      const voice = availableVoices.find(v => v.name.toLowerCase().includes(pattern));
+      if (voice) return voice;
+    }
+  } else {
+    for (const pattern of femalePatterns) {
+      const voice = availableVoices.find(v => v.name.toLowerCase().includes(pattern));
+      if (voice) return voice;
+    }
+  }
+  
+  return availableVoices.find(v => v.lang && v.lang.startsWith('en-')) || 
+         availableVoices.find(v => v.lang && v.lang.startsWith('en')) ||
+         availableVoices[0];
+}
+
+function speakText(text, priority = false) {
   if (!voiceEnabled || !('speechSynthesis' in window)) return;
-  window.speechSynthesis.cancel();
+  
+  if (!priority) {
+    window.speechSynthesis.cancel();
+  }
+  
   const utterance = new SpeechSynthesisUtterance(text);
-  utterance.rate = 0.9;
-  utterance.pitch = 1;
+  
+  utterance.rate = 0.85;
+  utterance.pitch = selectedVoiceType === 'male' ? 0.85 : 1.1;
   utterance.volume = 1;
-  const voices = window.speechSynthesis.getVoices();
-  const englishVoice = voices.find(v => v.lang.startsWith('en')) || voices[0];
-  if (englishVoice) utterance.voice = englishVoice;
+  
+  const voice = getBestVoice(selectedVoiceType);
+  if (voice) {
+    utterance.voice = voice;
+  }
+  
+  if (priority) {
+    utterance.onend = () => {
+      if (autoVoiceCheckbox.checked && opponentComment.textContent) {
+        const commentUtterance = new SpeechSynthesisUtterance(opponentComment.textContent);
+        commentUtterance.rate = 0.85;
+        commentUtterance.pitch = selectedVoiceType === 'male' ? 0.85 : 1.1;
+        if (voice) commentUtterance.voice = voice;
+        window.speechSynthesis.speak(commentUtterance);
+      }
+    };
+  }
+  
   window.speechSynthesis.speak(utterance);
+}
+
+function announceMove(from, to, isPlayer = true) {
+  const files = { a: 'ay', b: 'bee', c: 'see', d: 'dee', e: 'ee', f: 'ef', g: 'jee', h: 'aych' };
+  const ranks = { '1': 'one', '2': 'two', '3': 'three', '4': 'four', '5': 'five', '6': 'six', '7': 'seven', '8': 'eight' };
+  
+  const fromFile = files[from[0]] || from[0];
+  const fromRank = ranks[from[1]] || from[1];
+  const toFile = files[to[0]] || to[0];
+  const toRank = ranks[to[1]] || to[1];
+  
+  const subject = isPlayer ? 'You moved' : 'Carl moved';
+  const text = `${subject} from ${fromFile} ${fromRank} to ${toFile} ${toRank}`;
+  
+  speakText(text, true);
+}
+
+function announceCapture(piece, isPlayer = true) {
+  const pieceNames = { p: 'pawn', r: 'rook', n: 'knight', b: 'bishop', q: 'queen', k: 'king' };
+  const name = pieceNames[piece.toLowerCase()] || piece;
+  const subject = isPlayer ? 'You captured' : 'Carl captured';
+  speakText(`${subject} the ${name}`, true);
+}
+
+function announceCheck(isPlayerInCheck) {
+  if (isPlayerInCheck) {
+    speakText('Check!', true);
+  }
+}
+
+function announceGameOver(result) {
+  if (result.includes('White wins')) {
+    speakText('Game over. You win!', true);
+  } else if (result.includes('Black wins')) {
+    speakText('Game over. Carl wins!', true);
+  } else {
+    speakText('Game over. It\'s a draw.', true);
+  }
 }
 
 voiceToggle.addEventListener('click', () => {
@@ -87,6 +266,19 @@ voiceToggle.addEventListener('click', () => {
     voiceToggle.classList.add('bg-gray-700');
     window.speechSynthesis.cancel();
   }
+});
+
+document.getElementById('voiceType').addEventListener('change', (e) => {
+  selectedVoiceType = e.target.value;
+  const testText = selectedVoiceType === 'male' ? 'Hello, I am ready to play chess.' : 'Hello, I am ready to play chess.';
+  speakText(testText, true);
+});
+
+document.getElementById('testVoiceBtn').addEventListener('click', () => {
+  const testText = selectedVoiceType === 'male' 
+    ? 'Hello, this is a test of the male voice.' 
+    : 'Hello, this is a test of the female voice.';
+  speakText(testText, true);
 });
 
 async function fetchGameState() {
@@ -118,6 +310,21 @@ async function makeMove(from, to, promotion = 'q') {
     if (result.success) {
       undoStack.push({ from, to, stateBefore: getBoardState() });
       
+      if (announceMovesCheckbox && announceMovesCheckbox.checked) {
+        if (result.state.history && result.state.history.length > 0) {
+          const lastMove = result.state.history[result.state.history.length - 1];
+          if (lastMove && lastMove.captured) {
+            announceCapture(lastMove.captured, true);
+          } else if (lastMove && lastMove.promotion) {
+            speakText('You promoted to ' + getPieceName(lastMove.promotion), true);
+          } else {
+            announceMove(from, to, true);
+          }
+        } else {
+          announceMove(from, to, true);
+        }
+      }
+      
       updateBoard(result.state);
       
       if (result.llmComment) {
@@ -134,7 +341,24 @@ async function makeMove(from, to, promotion = 'q') {
       
       addMoveToHistory(from + '-' + to);
       
-      playSound('move');
+      if (result.state.inCheck) {
+        playSound('check');
+        if (announceMovesCheckbox && announceMovesCheckbox.checked) {
+          announceCheck(true);
+        }
+      } else if (result.state.history && result.state.history.length > 0) {
+        const lastMove = result.state.history[result.state.history.length - 1];
+        if (lastMove && lastMove.captured) {
+          addCapturedPiece(lastMove.captured);
+          playSound('capture');
+        } else if (lastMove && lastMove.promotion) {
+          playSound('promotion');
+        } else {
+          playSound('move');
+        }
+      } else {
+        playSound('move');
+      }
       
       if (result.mistakeDetected) {
         mistakeCount++;
@@ -156,12 +380,46 @@ async function makeMove(from, to, promotion = 'q') {
         stopTimer();
         playSound('gameOver');
         
+        if (announceMovesCheckbox && announceMovesCheckbox.checked) {
+          announceGameOver(result.result);
+        }
+        
         if (result.result.includes('White wins')) {
           opponentComment.textContent = result.llmComment || "Fine, you won...";
         } else if (result.result.includes('Black wins')) {
           opponentComment.textContent = result.llmComment || "I win! Better luck next time!";
         }
       } else {
+        if (announceMovesCheckbox && announceMovesCheckbox.checked) {
+          if (result.state.history && result.state.history.length > 0) {
+            const lastMove = result.state.history[result.state.history.length - 1];
+            if (lastMove) {
+              const movePair = lastMove.from + '-' + lastMove.to;
+              const moves = moveHistory[moveHistory.length - 1];
+              if (lastMove.captured) {
+                announceCapture(lastMove.captured, false);
+              } else {
+                announceMove(lastMove.from, lastMove.to, false);
+              }
+            }
+          }
+        }
+        
+        if (result.state.inCheck) {
+          playSound('check');
+          if (announceMovesCheckbox && announceMovesCheckbox.checked) {
+            announceCheck(false);
+          }
+        }
+        
+        if (result.state.history && result.state.history.length > 0) {
+          const lastMove = result.state.history[result.state.history.length - 1];
+          if (lastMove && lastMove.captured) {
+            addCapturedPiece(lastMove.captured);
+            playSound('capture');
+          }
+        }
+        
         startTimerForCurrentTurn();
         updateEvaluation();
       }
@@ -660,35 +918,6 @@ function toggleCoordinates() {
   fetchGameState();
 }
 
-function playSound(type) {
-  if (!soundEffectsCheckbox.checked) return;
-  
-  const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-  const oscillator = audioContext.createOscillator();
-  const gainNode = audioContext.createGain();
-  
-  oscillator.connect(gainNode);
-  gainNode.connect(audioContext.destination);
-  
-  const frequencies = {
-    move: 440,
-    capture: 330,
-    check: 550,
-    mistake: 300,
-    blunder: 200,
-    gameOver: 660
-  };
-  
-  oscillator.frequency.value = frequencies[type] || 440;
-  oscillator.type = type === 'move' ? 'sine' : 'square';
-  
-  gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
-  gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
-  
-  oscillator.start();
-  oscillator.stop(audioContext.currentTime + 0.2);
-}
-
 document.querySelectorAll('.promotion-piece').forEach(btn => {
   btn.addEventListener('click', async () => {
     const piece = btn.dataset.piece;
@@ -710,4 +939,274 @@ difficultySelect.addEventListener('change', (e) => changeDifficulty(e.target.val
 timeControlSelect.addEventListener('change', (e) => changeTimeControl(e.target.value));
 showCoordinatesCheckbox.addEventListener('change', toggleCoordinates);
 
+const historyModal = document.getElementById('historyModal');
+const analysisModal = document.getElementById('analysisModal');
+const viewHistoryBtn = document.getElementById('viewHistoryBtn');
+const closeHistoryBtn = document.getElementById('closeHistoryBtn');
+const closeAnalysisBtn = document.getElementById('closeAnalysisBtn');
+const gamesList = document.getElementById('gamesList');
+
+viewHistoryBtn.addEventListener('click', async () => {
+  await loadGameHistory();
+  historyModal.classList.remove('hidden');
+});
+
+closeHistoryBtn.addEventListener('click', () => {
+  historyModal.classList.add('hidden');
+});
+
+closeAnalysisBtn.addEventListener('click', () => {
+  analysisModal.classList.add('hidden');
+});
+
+async function loadGameHistory() {
+  try {
+    const response = await fetch('/api/games?limit=50');
+    const games = await response.json();
+    
+    if (games.length === 0) {
+      gamesList.innerHTML = '<p class="text-gray-400">No games yet. Play a game to see it here!</p>';
+      return;
+    }
+    
+    gamesList.innerHTML = games.map(game => `
+      <div class="bg-gray-700 rounded-lg p-3 flex items-center justify-between">
+        <div>
+          <div class="text-white font-semibold">vs ${game.opponent} (Level ${game.difficulty})</div>
+          <div class="text-sm text-gray-400">${new Date(game.created_at).toLocaleDateString()} - ${game.duration_seconds ? Math.floor(game.duration_seconds / 60) + 'm' : '--'}</div>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="px-2 py-1 rounded text-sm font-semibold ${
+            game.result === 'win' ? 'bg-green-600 text-white' : 
+            game.result === 'loss' ? 'bg-red-600 text-white' : 'bg-gray-600 text-white'
+          }">${game.result === 'win' ? 'Win' : game.result === 'loss' ? 'Loss' : 'Draw'}</span>
+          <button class="analyze-btn bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-sm" data-id="${game.id}">
+            Analyze
+          </button>
+        </div>
+      </div>
+    `).join('');
+    
+    document.querySelectorAll('.analyze-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const gameId = e.target.dataset.id;
+        await analyzeGame(gameId);
+      });
+    });
+  } catch (error) {
+    console.error('Failed to load game history:', error);
+    gamesList.innerHTML = '<p class="text-red-400">Failed to load games</p>';
+  }
+}
+
+async function analyzeGame(gameId) {
+  historyModal.classList.add('hidden');
+  analysisModal.classList.remove('hidden');
+  
+  document.getElementById('analysisContent').classList.add('hidden');
+  document.getElementById('analysisLoading').classList.remove('hidden');
+  
+  try {
+    const response = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gameId: parseInt(gameId) })
+    });
+    
+    const analysis = await response.json();
+    
+    document.getElementById('analysisAccuracy').textContent = Math.round(analysis.accuracy) + '%';
+    document.getElementById('analysisOpening').textContent = analysis.opening || 'Unknown';
+    document.getElementById('analysisMistakes').textContent = analysis.mistakes?.length || 0;
+    document.getElementById('analysisBlunders').textContent = analysis.blunders?.length || 0;
+    
+    const moveList = document.getElementById('moveAnalysisList');
+    moveList.innerHTML = analysis.moves.map(m => {
+      let colorClass = 'text-green-400';
+      if (m.classification === 'mistake') colorClass = 'text-yellow-400';
+      if (m.classification === 'blunder') colorClass = 'text-red-400';
+      
+      let altMove = '';
+      if (m.alternative) {
+        altMove = `<span class="text-blue-400 text-xs ml-1">(try ${m.alternative.from}-${m.alternative.to})</span>`;
+      }
+      
+      const checkMark = m.inCheck ? ' #' : '';
+      const moveDisplay = `${m.moveNumber}${m.color === 'white' ? '.' : '...'} ${m.move}${checkMark}`;
+      
+      return `<div class="flex justify-between ${colorClass}">
+        <span>${moveDisplay}${altMove}</span>
+        <span>${m.evaluation > 0 ? '+' : ''}${m.evaluation.toFixed(1)}</span>
+      </div>`;
+    }).join('');
+    
+    drawEvalChart(analysis.evaluationHistory);
+    
+    document.getElementById('analysisLoading').classList.add('hidden');
+    document.getElementById('analysisContent').classList.remove('hidden');
+    
+  } catch (error) {
+    console.error('Analysis failed:', error);
+    document.getElementById('analysisLoading').classList.add('hidden');
+    document.getElementById('analysisContent').classList.remove('hidden');
+    document.getElementById('moveAnalysisList').innerHTML = '<p class="text-red-400">Analysis failed. Please try again.</p>';
+  }
+}
+
+function drawEvalChart(evalHistory) {
+  const canvas = document.getElementById('evalChart');
+  const ctx = canvas.getContext('2d');
+  
+  canvas.width = canvas.offsetWidth * 2;
+  canvas.height = canvas.offsetHeight * 2;
+  ctx.scale(2, 2);
+  
+  const width = canvas.offsetWidth;
+  const height = canvas.offsetHeight;
+  
+  ctx.fillStyle = '#374151';
+  ctx.fillRect(0, 0, width, height);
+  
+  if (!evalHistory || evalHistory.length === 0) return;
+  
+  ctx.strokeStyle = '#6b7280';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, height / 2);
+  ctx.lineTo(width, height / 2);
+  ctx.stroke();
+  
+  const maxEval = Math.max(...evalHistory.map(e => Math.abs(e.evaluation)), 5);
+  
+  ctx.strokeStyle = '#22c55e';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  
+  evalHistory.forEach((point, i) => {
+    const x = (i / (evalHistory.length - 1)) * width;
+    const y = height / 2 - (point.evaluation / maxEval) * (height / 2 - 10);
+    
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  
+  ctx.stroke();
+  
+  ctx.fillStyle = '#9ca3af';
+  ctx.font = '10px sans-serif';
+  ctx.fillText('White advantage', 5, 12);
+  ctx.fillText('Black advantage', 5, height - 5);
+}
+
+async function loadStats() {
+  try {
+    const response = await fetch('/api/stats');
+    const stats = await response.json();
+    
+    document.getElementById('totalGames').textContent = stats.total;
+    document.getElementById('totalWins').textContent = stats.wins;
+    document.getElementById('totalLosses').textContent = stats.losses;
+  } catch (error) {
+    console.error('Failed to load stats:', error);
+  }
+}
+
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    
+    tab.classList.add('active');
+    document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+  });
+});
+
+const personalityAvatars = {
+  sassy: '😏',
+  grandma: '👵',
+  commentator: '🎙️',
+  trashTalker: '🗣️',
+  confused: '🤔'
+};
+
+const originalChangePersonality = changePersonality;
+changePersonality = async function(personality) {
+  await originalChangePersonality(personality);
+  opponentAvatar.textContent = personalityAvatars[personality] || '♟️';
+};
+
+function updateCapturedPieces() {
+  const pieceOrder = ['q', 'r', 'b', 'n', 'p'];
+  
+  capturedWhiteEl.innerHTML = capturedWhite
+    .sort((a, b) => pieceOrder.indexOf(a) - pieceOrder.indexOf(b))
+    .map(p => `<span class="captured-piece white">${getPieceChar(p)}</span>`)
+    .join('');
+  
+  capturedBlackEl.innerHTML = capturedBlack
+    .sort((a, b) => pieceOrder.indexOf(a) - pieceOrder.indexOf(b))
+    .map(p => `<span class="captured-piece black">${getPieceChar(p)}</span>`)
+    .join('');
+  
+  updateMaterialAdvantage();
+}
+
+function getPieceChar(type) {
+  const chars = { p: '♟', r: '♜', n: '♞', b: '♝', q: '♛', k: '♚' };
+  return chars[type] || type;
+}
+
+function getPieceName(type) {
+  const names = { p: 'queen', r: 'rook', n: 'knight', b: 'bishop', q: 'queen', k: 'king' };
+  return names[type] || type;
+}
+
+const pieceValues = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+
+function updateMaterialAdvantage() {
+  const whiteValue = capturedBlack.reduce((sum, p) => sum + (pieceValues[p] || 0), 0);
+  const blackValue = capturedWhite.reduce((sum, p) => sum + (pieceValues[p] || 0), 0);
+  const diff = whiteValue - blackValue;
+  
+  if (diff > 0) {
+    materialAdvantageEl.innerHTML = `<span class="text-green-400">+${diff}</span>`;
+  } else if (diff < 0) {
+    materialAdvantageEl.innerHTML = `<span class="text-red-400">${diff}</span>`;
+  } else {
+    materialAdvantageEl.innerHTML = `<span class="even">=</span>`;
+  }
+}
+
+function addCapturedPiece(piece) {
+  const isWhite = piece === piece.toUpperCase();
+  const type = piece.toLowerCase();
+  
+  if (isWhite) {
+    capturedBlack.push(type);
+  } else {
+    capturedWhite.push(type);
+  }
+  
+  updateCapturedPieces();
+}
+
+const originalResetGame = resetGame;
+resetGame = async function() {
+  capturedWhite = [];
+  capturedBlack = [];
+  updateCapturedPieces();
+  return originalResetGame();
+};
+
+document.getElementById('soundEffectsAlt').addEventListener('change', (e) => {
+  soundEffectsCheckbox.checked = e.target.checked;
+});
+
+document.getElementById('explainMovesAlt').addEventListener('change', (e) => {
+  explainMovesCheckbox.checked = e.target.checked;
+});
+
+opponentAvatar.textContent = personalityAvatars[personalitySelect.value] || '♟️';
+
+loadStats();
 fetchGameState();
