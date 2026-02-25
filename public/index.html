@@ -109,6 +109,22 @@
           
           <!-- Controls -->
           <div class="flex flex-wrap gap-2 justify-center">
+            <!-- Game Mode Toggle -->
+            <div class="flex rounded-lg overflow-hidden border border-gray-600">
+              <button id="modeAiBtn" class="mode-btn active px-3 py-1 text-sm font-semibold bg-green-600 text-white">
+                vs AI
+              </button>
+              <button id="modePvpBtn" class="mode-btn px-3 py-1 text-sm font-semibold bg-gray-700 text-gray-300">
+                vs Player
+              </button>
+            </div>
+            
+            <select id="pvpColorSelect" class="bg-gray-700 text-white px-2 py-1 rounded-lg text-sm hidden">
+              <option value="random">Random</option>
+              <option value="white">You play White</option>
+              <option value="black">You play Black</option>
+            </select>
+            
             <select id="timeControl" class="bg-gray-700 text-white px-2 py-1 rounded-lg text-sm">
               <option value="180">⚡ 3+0</option>
               <option value="300">⚡ 5+0</option>
@@ -131,6 +147,16 @@
               <option value="purple">Purple</option>
               <option value="dark">Dark</option>
             </select>
+          </div>
+          
+          <!-- PvP Controls -->
+          <div id="pvpControls" class="hidden mt-2 flex justify-center gap-2">
+            <button id="switchSidesBtn" class="btn btn-yellow text-xs py-1">
+              🔄 Switch Sides
+            </button>
+            <button id="flipBoardPvpBtn" class="btn btn-blue text-xs py-1">
+              🔃 Flip Board
+            </button>
           </div>
           
           <!-- Options -->

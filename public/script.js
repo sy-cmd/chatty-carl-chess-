@@ -30,6 +30,9 @@ let capturedBlack = [];
 let mistakeCount = 0;
 let blunderCount = 0;
 
+let gameMode = 'ai';
+let playerColor = 'white';
+
 const boardElement = document.getElementById('board');
 const turnDisplay = document.getElementById('turnDisplay');
 const checkIndicator = document.getElementById('checkIndicator');
@@ -291,18 +294,196 @@ async function fetchGameState() {
   }
 }
 
+function handleAiMoveResult(result) {
+  if (announceMovesCheckbox && announceMovesCheckbox.checked) {
+    if (result.state.history && result.state.history.length > 0) {
+      const lastMove = result.state.history[result.state.history.length - 1];
+      if (lastMove && lastMove.captured) {
+        announceCapture(lastMove.captured, true);
+      } else if (lastMove && lastMove.promotion) {
+        speakText('You promoted to ' + getPieceName(lastMove.promotion), true);
+      } else {
+        const from = result.state.history[0]?.from || '';
+        const to = result.state.history[0]?.to || '';
+        if (from) announceMove(from, to, true);
+      }
+    }
+  }
+  
+  updateBoard(result.state);
+  
+  if (result.llmComment) {
+    opponentComment.textContent = result.llmComment;
+    if (autoVoiceCheckbox.checked) {
+      speakText(result.llmComment);
+    }
+  }
+  
+  if (result.moveExplanation) {
+    moveExplanationEl.textContent = result.moveExplanation;
+    moveExplanationEl.classList.remove('hidden');
+  }
+  
+  const lastHistory = result.state.history[result.state.history.length - 1];
+  if (lastHistory) {
+    addMoveToHistory(lastHistory.from + '-' + lastHistory.to);
+  }
+  
+  if (result.state.inCheck) {
+    playSound('check');
+    if (announceMovesCheckbox && announceMovesCheckbox.checked) {
+      announceCheck(true);
+    }
+  } else if (result.state.history && result.state.history.length > 0) {
+    const lastMove = result.state.history[result.state.history.length - 1];
+    if (lastMove && lastMove.captured) {
+      addCapturedPiece(lastMove.captured);
+      playSound('capture');
+    } else if (lastMove && lastMove.promotion) {
+      playSound('promotion');
+    } else {
+      playSound('move');
+    }
+  } else {
+    playSound('move');
+  }
+  
+  if (result.mistakeDetected) {
+    mistakeCount++;
+    mistakeCountEl.textContent = mistakeCount;
+    mistakeCounterEl.classList.remove('hidden');
+    playSound('mistake');
+  }
+  
+  if (result.blunderDetected) {
+    blunderCount++;
+    blunderCountEl.textContent = blunderCount;
+    playSound('blunder');
+  }
+  
+  if (result.gameOver) {
+    gameOver = true;
+    gameOverDisplay.textContent = result.result;
+    gameOverDisplay.classList.remove('hidden');
+    stopTimer();
+    playSound('gameOver');
+    
+    if (announceMovesCheckbox && announceMovesCheckbox.checked) {
+      announceGameOver(result.result);
+    }
+    
+    if (result.result.includes('White wins')) {
+      opponentComment.textContent = result.llmComment || "Fine, you won...";
+    } else if (result.result.includes('Black wins')) {
+      opponentComment.textContent = result.llmComment || "I win! Better luck next time!";
+    }
+  } else {
+    if (announceMovesCheckbox && announceMovesCheckbox.checked) {
+      if (result.state.history && result.state.history.length > 1) {
+        const aiMove = result.state.history[result.state.history.length - 1];
+        if (aiMove && aiMove.captured) {
+          announceCapture(aiMove.captured, false);
+        } else if (aiMove) {
+          announceMove(aiMove.from, aiMove.to, false);
+        }
+      }
+    }
+    
+    if (result.state.inCheck) {
+      playSound('check');
+      if (announceMovesCheckbox && announceMovesCheckbox.checked) {
+        announceCheck(false);
+      }
+    }
+    
+    if (result.state.history && result.state.history.length > 0) {
+      const lastMove = result.state.history[result.state.history.length - 1];
+      if (lastMove && lastMove.captured) {
+        addCapturedPiece(lastMove.captured);
+        playSound('capture');
+      }
+    }
+    
+    startTimerForCurrentTurn();
+    updateEvaluation();
+  }
+}
+
+function handlePvpMoveResult(result, from, to) {
+  updateBoard(result.state);
+  
+  const turnText = result.state.turn === 'w' ? "White's move" : "Black's move";
+  opponentComment.textContent = turnText;
+  
+  if (announceMovesCheckbox && announceMovesCheckbox.checked) {
+    const isWhite = result.state.turn === 'w';
+    announceMove(from, to, isWhite);
+  }
+  
+  if (result.state.inCheck) {
+    playSound('check');
+    if (announceMovesCheckbox && announceMovesCheckbox.checked) {
+      announceCheck(true);
+    }
+  } else if (result.state.history && result.state.history.length > 0) {
+    const lastMove = result.state.history[result.state.history.length - 1];
+    if (lastMove && lastMove.captured) {
+      addCapturedPiece(lastMove.captured);
+      playSound('capture');
+    } else if (lastMove && lastMove.promotion) {
+      playSound('promotion');
+    } else {
+      playSound('move');
+    }
+  }
+  
+  addMoveToHistory(from + '-' + to);
+  
+  if (result.gameOver) {
+    gameOver = true;
+    gameOverDisplay.textContent = result.result;
+    gameOverDisplay.classList.remove('hidden');
+    stopTimer();
+    playSound('gameOver');
+    
+    if (announceMovesCheckbox && announceMovesCheckbox.checked) {
+      announceGameOver(result.result);
+    }
+    
+    if (result.result.includes('White wins')) {
+      opponentComment.textContent = "White wins!";
+    } else if (result.result.includes('Black wins')) {
+      opponentComment.textContent = "Black wins!";
+    } else {
+      opponentComment.textContent = "It's a draw!";
+    }
+  } else {
+    startTimerForCurrentTurn();
+  }
+}
+
 async function makeMove(from, to, promotion = 'q') {
-  if (gameOver || currentTurn !== 'w') return;
+  const isPlayerTurn = gameMode === 'ai' ? currentTurn === 'w' : true;
+  
+  if (gameOver || !isPlayerTurn) return;
 
   setLoading(true);
-  currentTurn = 'b';
-  startTimerForCurrentTurn();
+  
+  if (gameMode === 'ai') {
+    currentTurn = 'b';
+    startTimerForCurrentTurn();
+  }
   
   try {
-    const response = await fetch('/api/move', {
+    const url = gameMode === 'pvp' ? '/api/pvp-move' : '/api/move';
+    const body = gameMode === 'pvp' 
+      ? { from, to, promotion }
+      : { from, to, promotion, difficulty, explain: explainMovesCheckbox.checked };
+    
+    const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from, to, promotion, difficulty, explain: explainMovesCheckbox.checked })
+      body: JSON.stringify(body)
     });
 
     const result = await response.json();
@@ -310,118 +491,10 @@ async function makeMove(from, to, promotion = 'q') {
     if (result.success) {
       undoStack.push({ from, to, stateBefore: getBoardState() });
       
-      if (announceMovesCheckbox && announceMovesCheckbox.checked) {
-        if (result.state.history && result.state.history.length > 0) {
-          const lastMove = result.state.history[result.state.history.length - 1];
-          if (lastMove && lastMove.captured) {
-            announceCapture(lastMove.captured, true);
-          } else if (lastMove && lastMove.promotion) {
-            speakText('You promoted to ' + getPieceName(lastMove.promotion), true);
-          } else {
-            announceMove(from, to, true);
-          }
-        } else {
-          announceMove(from, to, true);
-        }
-      }
-      
-      updateBoard(result.state);
-      
-      if (result.llmComment) {
-        opponentComment.textContent = result.llmComment;
-        if (autoVoiceCheckbox.checked) {
-          speakText(result.llmComment);
-        }
-      }
-      
-      if (result.moveExplanation) {
-        moveExplanationEl.textContent = result.moveExplanation;
-        moveExplanationEl.classList.remove('hidden');
-      }
-      
-      addMoveToHistory(from + '-' + to);
-      
-      if (result.state.inCheck) {
-        playSound('check');
-        if (announceMovesCheckbox && announceMovesCheckbox.checked) {
-          announceCheck(true);
-        }
-      } else if (result.state.history && result.state.history.length > 0) {
-        const lastMove = result.state.history[result.state.history.length - 1];
-        if (lastMove && lastMove.captured) {
-          addCapturedPiece(lastMove.captured);
-          playSound('capture');
-        } else if (lastMove && lastMove.promotion) {
-          playSound('promotion');
-        } else {
-          playSound('move');
-        }
+      if (gameMode === 'ai') {
+        handleAiMoveResult(result);
       } else {
-        playSound('move');
-      }
-      
-      if (result.mistakeDetected) {
-        mistakeCount++;
-        mistakeCountEl.textContent = mistakeCount;
-        mistakeCounterEl.classList.remove('hidden');
-        playSound('mistake');
-      }
-      
-      if (result.blunderDetected) {
-        blunderCount++;
-        blunderCountEl.textContent = blunderCount;
-        playSound('blunder');
-      }
-      
-      if (result.gameOver) {
-        gameOver = true;
-        gameOverDisplay.textContent = result.result;
-        gameOverDisplay.classList.remove('hidden');
-        stopTimer();
-        playSound('gameOver');
-        
-        if (announceMovesCheckbox && announceMovesCheckbox.checked) {
-          announceGameOver(result.result);
-        }
-        
-        if (result.result.includes('White wins')) {
-          opponentComment.textContent = result.llmComment || "Fine, you won...";
-        } else if (result.result.includes('Black wins')) {
-          opponentComment.textContent = result.llmComment || "I win! Better luck next time!";
-        }
-      } else {
-        if (announceMovesCheckbox && announceMovesCheckbox.checked) {
-          if (result.state.history && result.state.history.length > 0) {
-            const lastMove = result.state.history[result.state.history.length - 1];
-            if (lastMove) {
-              const movePair = lastMove.from + '-' + lastMove.to;
-              const moves = moveHistory[moveHistory.length - 1];
-              if (lastMove.captured) {
-                announceCapture(lastMove.captured, false);
-              } else {
-                announceMove(lastMove.from, lastMove.to, false);
-              }
-            }
-          }
-        }
-        
-        if (result.state.inCheck) {
-          playSound('check');
-          if (announceMovesCheckbox && announceMovesCheckbox.checked) {
-            announceCheck(false);
-          }
-        }
-        
-        if (result.state.history && result.state.history.length > 0) {
-          const lastMove = result.state.history[result.state.history.length - 1];
-          if (lastMove && lastMove.captured) {
-            addCapturedPiece(lastMove.captured);
-            playSound('capture');
-          }
-        }
-        
-        startTimerForCurrentTurn();
-        updateEvaluation();
+        handlePvpMoveResult(result, from, to);
       }
     } else {
       console.error('Move failed:', result.error);
@@ -444,7 +517,13 @@ function updateBoard(state) {
   currentTurn = state.turn;
   gameOver = state.gameOver;
   
-  turnDisplay.textContent = currentTurn === 'w' ? "White (Your turn)" : "Black (Carl's turn)";
+  if (gameMode === 'pvp') {
+    const isYourTurn = (playerColor === 'white' && currentTurn === 'w') || 
+                       (playerColor === 'black' && currentTurn === 'b');
+    turnDisplay.textContent = currentTurn === 'w' ? "White's turn" : "Black's turn";
+  } else {
+    turnDisplay.textContent = currentTurn === 'w' ? "White (Your turn)" : "Black (Carl's turn)";
+  }
   
   checkIndicator.classList.toggle('hidden', !state.inCheck);
   
@@ -562,14 +641,28 @@ function renderBoard(legalMovesData, history) {
 async function handleSquareClick(square) {
   if (gameOver) return;
   
-  if (currentTurn !== 'w') {
-    opponentComment.textContent = "Wait your turn! I'm thinking...";
+  let canMove = true;
+  let playerColorCheck = 'white';
+  
+  if (gameMode === 'ai') {
+    canMove = currentTurn === 'w';
+    playerColorCheck = 'white';
+  } else {
+    playerColorCheck = currentTurn === 'w' ? 'white' : 'black';
+    canMove = true;
+  }
+  
+  if (!canMove) {
+    const waitingText = gameMode === 'pvp' 
+      ? (currentTurn === 'w' ? "White's turn - wait!" : "Black's turn - wait!")
+      : "Wait your turn! I'm thinking...";
+    opponentComment.textContent = waitingText;
     return;
   }
   
   if (!selectedSquare) {
     const piece = getPieceAt(square);
-    if (piece && piece.color === 'white') {
+    if (piece && piece.color === playerColorCheck) {
       selectedSquare = square;
       await fetchLegalMoves(square);
     }
@@ -938,6 +1031,88 @@ themeSelect.addEventListener('change', (e) => changeTheme(e.target.value));
 difficultySelect.addEventListener('change', (e) => changeDifficulty(e.target.value));
 timeControlSelect.addEventListener('change', (e) => changeTimeControl(e.target.value));
 showCoordinatesCheckbox.addEventListener('change', toggleCoordinates);
+
+const modeAiBtn = document.getElementById('modeAiBtn');
+const modePvpBtn = document.getElementById('modePvpBtn');
+const pvpColorSelect = document.getElementById('pvpColorSelect');
+const pvpControls = document.getElementById('pvpControls');
+const difficultySelectEl = document.getElementById('difficultySelect');
+const personalitySelectEl = document.getElementById('personalitySelect');
+const hintBtnEl = document.getElementById('hintBtn');
+const switchSidesBtn = document.getElementById('switchSidesBtn');
+const flipBoardPvpBtn = document.getElementById('flipBoardPvpBtn');
+
+async function setGameMode(mode) {
+  gameMode = mode;
+  
+  if (mode === 'pvp') {
+    modeAiBtn.classList.remove('active', 'bg-green-600', 'text-white');
+    modeAiBtn.classList.add('bg-gray-700', 'text-gray-300');
+    modePvpBtn.classList.add('active', 'bg-green-600', 'text-white');
+    modePvpBtn.classList.remove('bg-gray-700', 'text-gray-300');
+    
+    pvpColorSelect.classList.remove('hidden');
+    pvpControls.classList.remove('hidden');
+    difficultySelectEl.classList.add('hidden');
+    personalitySelectEl.classList.add('hidden');
+    hintBtnEl.classList.add('hidden');
+    
+    const color = pvpColorSelect.value;
+    if (color === 'random') {
+      playerColor = Math.random() > 0.5 ? 'white' : 'black';
+    } else {
+      playerColor = color;
+    }
+    
+    opponentComment.textContent = "Player vs Player - " + (playerColor === 'white' ? "You are White" : "You are Black");
+  } else {
+    modeAiBtn.classList.add('active', 'bg-green-600', 'text-white');
+    modeAiBtn.classList.remove('bg-gray-700', 'text-gray-300');
+    modePvpBtn.classList.remove('active', 'bg-green-600', 'text-white');
+    modePvpBtn.classList.add('bg-gray-700', 'text-gray-300');
+    
+    pvpColorSelect.classList.add('hidden');
+    pvpControls.classList.add('hidden');
+    difficultySelectEl.classList.remove('hidden');
+    personalitySelectEl.classList.remove('hidden');
+    hintBtnEl.classList.remove('hidden');
+    
+    opponentComment.textContent = "Let's play! I'll crush you! ♟️";
+  }
+  
+  try {
+    await fetch('/api/mode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode, color: playerColor })
+    });
+  } catch (err) {
+    console.error('Failed to set mode:', err);
+  }
+  
+  resetGame();
+}
+
+modeAiBtn.addEventListener('click', () => setGameMode('ai'));
+modePvpBtn.addEventListener('click', () => setGameMode('pvp'));
+
+pvpColorSelect.addEventListener('change', () => {
+  if (gameMode === 'pvp') {
+    setGameMode('pvp');
+  }
+});
+
+switchSidesBtn.addEventListener('click', () => {
+  playerColor = playerColor === 'white' ? 'black' : 'white';
+  boardFlipped = !boardFlipped;
+  opponentComment.textContent = "Player vs Player - " + (playerColor === 'white' ? "You are White" : "You are Black");
+  fetchGameState();
+});
+
+flipBoardPvpBtn.addEventListener('click', () => {
+  boardFlipped = !boardFlipped;
+  fetchGameState();
+});
 
 const historyModal = document.getElementById('historyModal');
 const analysisModal = document.getElementById('analysisModal');

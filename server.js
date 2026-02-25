@@ -17,6 +17,9 @@ const stockfish = new StockfishPlayer(difficulty);
 let gameStartTime = null;
 let currentGameMoves = [];
 
+let gameMode = 'ai';
+let playerColor = 'white';
+
 game.setStockfish(stockfish);
 
 initGroq(process.env.GROQ_API_KEY);
@@ -492,6 +495,115 @@ async function analyzeGame(moves, difficulty) {
   analysis.opening = openingNames[gameMoves] || 'Unknown Opening';
   
   return analysis;
+}
+
+app.post('/api/mode', (req, res) => {
+  try {
+    const { mode, color } = req.body;
+    gameMode = mode || 'ai';
+    
+    if (color) {
+      playerColor = color;
+    }
+    
+    if (gameMode === 'pvp') {
+      game.reset();
+      currentGameMoves = [];
+      gameStartTime = null;
+    }
+    
+    res.json({ 
+      success: true, 
+      mode: gameMode,
+      playerColor: playerColor
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/mode', (req, res) => {
+  res.json({ mode: gameMode, playerColor: playerColor });
+});
+
+app.post('/api/pvp-move', async (req, res) => {
+  try {
+    const { from, to, promotion } = req.body;
+    
+    if (!from || !to) {
+      return res.status(400).json({ error: 'Missing from or to square' });
+    }
+
+    const playerMoveResult = game.makeMove(from, to, promotion || 'q');
+    
+    if (!playerMoveResult.success) {
+      return res.json({ 
+        success: false, 
+        error: playerMoveResult.error,
+        state: game.getState()
+      });
+    }
+
+    if (!gameStartTime) {
+      gameStartTime = Date.now();
+    }
+    currentGameMoves.push({ from, to, color: game.getState().turn, timestamp: Date.now() });
+
+    const stateAfterPlayerMove = game.getState();
+    
+    if (stateAfterPlayerMove.gameOver) {
+      savePvpGame(stateAfterPlayerMove);
+      
+      return res.json({
+        success: true,
+        state: stateAfterPlayerMove,
+        gameOver: true,
+        result: stateAfterPlayerMove.result
+      });
+    }
+
+    res.json({
+      success: true,
+      state: stateAfterPlayerMove,
+      gameOver: false
+    });
+
+  } catch (error) {
+    console.error('PvP move error:', error);
+    res.status(500).json({ error: error.message, success: false });
+  }
+});
+
+function savePvpGame(finalState) {
+  if (!gameStartTime || currentGameMoves.length === 0) return;
+  
+  const durationSeconds = Math.floor((Date.now() - gameStartTime) / 1000);
+  
+  let resultStr = 'draw';
+  if (finalState.result) {
+    if (finalState.result.includes('White wins')) resultStr = 'white_win';
+    else if (finalState.result.includes('Black wins')) resultStr = 'black_win';
+  }
+  
+  const pgn = currentGameMoves.map((m, i) => {
+    const moveNum = Math.floor(i / 2) + 1;
+    return i % 2 === 0 ? `${moveNum}. ${m.from}-${m.to}` : `${m.from}-${m.to}`;
+  }).join(' ');
+  
+  try {
+    Database.saveGame({
+      playerColor: playerColor,
+      opponent: 'Local PvP',
+      difficulty: 0,
+      result: resultStr,
+      pgn: pgn,
+      analysis: null,
+      durationSeconds: durationSeconds
+    });
+    console.log('PvP game saved to database');
+  } catch (err) {
+    console.error('Failed to save PvP game:', err);
+  }
 }
 
 app.get('/', (req, res) => {
