@@ -64,6 +64,7 @@ const capturedWhiteEl = document.getElementById('capturedWhite');
 const capturedBlackEl = document.getElementById('capturedBlack');
 const materialAdvantageEl = document.getElementById('materialAdvantage');
 const opponentAvatar = document.getElementById('opponentAvatar');
+const opponentName = null;
 
 let voiceEnabled = false;
 const voiceToggle = document.getElementById('voiceToggle');
@@ -138,13 +139,126 @@ function playSound(type) {
 }
 
 let selectedVoiceType = 'male';
+let selectedVoiceId = 'alloy';
 let availableVoices = [];
 let voicesLoaded = false;
+let googleVoices = [];
+let personalityVoices = {};
+let currentPersonality = 'sassy';
+let usePuterTTS = true;
+let currentAudio = null;
 
 function loadVoices() {
   availableVoices = window.speechSynthesis.getVoices();
   voicesLoaded = availableVoices.length > 0;
 }
+
+async function loadOpenAIVoices() {
+  try {
+    const response = await fetch('/api/voices');
+    const data = await response.json();
+    googleVoices = data.voices;
+    personalityVoices = data.personalityVoices;
+    
+    const voiceSelector = document.getElementById('voiceSelector');
+    if (voiceSelector) {
+      voiceSelector.innerHTML = '';
+      
+      const groupedVoices = {};
+      googleVoices.forEach(voice => {
+        const key = voice.gender;
+        if (!groupedVoices[key]) groupedVoices[key] = [];
+        groupedVoices[key].push(voice);
+      });
+      
+      const maleGroup = document.createElement('optgroup');
+      maleGroup.label = 'Male Voices';
+      groupedVoices['male']?.forEach(voice => {
+        const option = document.createElement('option');
+        option.value = voice.id;
+        option.textContent = `${voice.name} - ${voice.description}`;
+        maleGroup.appendChild(option);
+      });
+      
+      const femaleGroup = document.createElement('optgroup');
+      femaleGroup.label = 'Female Voices';
+      groupedVoices['female']?.forEach(voice => {
+        const option = document.createElement('option');
+        option.value = voice.id;
+        option.textContent = `${voice.name} - ${voice.description}`;
+        femaleGroup.appendChild(option);
+      });
+      
+      const neutralGroup = document.createElement('optgroup');
+      neutralGroup.label = 'Neutral Voices';
+      groupedVoices['neutral']?.forEach(voice => {
+        const option = document.createElement('option');
+        option.value = voice.id;
+        option.textContent = `${voice.name} - ${voice.description}`;
+        neutralGroup.appendChild(option);
+      });
+      
+      voiceSelector.appendChild(neutralGroup);
+      voiceSelector.appendChild(maleGroup);
+      voiceSelector.appendChild(femaleGroup);
+      
+      const savedVoice = localStorage.getItem('selectedVoiceId');
+      if (savedVoice && googleVoices.find(v => v.id === savedVoice)) {
+        selectedVoiceId = savedVoice;
+        voiceSelector.value = savedVoice;
+      } else {
+        selectedVoiceId = 'alloy';
+        voiceSelector.value = 'alloy';
+      }
+    }
+    
+    console.log('Puter TTS ready');
+  } catch (error) {
+    console.error('Failed to setup TTS:', error);
+    usePuterTTS = false;
+    
+    const voiceSelector = document.getElementById('voiceSelector');
+    if (voiceSelector) {
+      voiceSelector.innerHTML = '<option value="">Using browser voices</option>';
+    }
+  }
+}
+
+function initTTS() {
+  const voiceSelector = document.getElementById('voiceSelector');
+  if (voiceSelector) {
+    voiceSelector.innerHTML = `
+      <optgroup label="Female Voices">
+        <option value="Joanna">Joanna - Neural</option>
+        <option value="Amy">Amy - Neural</option>
+        <option value="Salli">Salli - Neural</option>
+        <option value="Ivy">Ivy - Neural</option>
+        <option value="Kimberly">Kimberly - Neural</option>
+        <option value="Olivia">Olivia - Neural</option>
+      </optgroup>
+      <optgroup label="Male Voices">
+        <option value="Matthew">Matthew - Neural</option>
+        <option value="Joey">Joey - Neural</option>
+        <option value="Justin">Justin - Neural</option>
+        <option value="Brian">Brian - Neural</option>
+        <option value="Russell">Russell - Neural</option>
+      </optgroup>
+    `;
+    
+    const savedVoice = localStorage.getItem('selectedVoiceId');
+    if (savedVoice) {
+      selectedVoiceId = savedVoice;
+      voiceSelector.value = savedVoice;
+    } else {
+      selectedVoiceId = 'Joanna';
+      voiceSelector.value = 'Joanna';
+    }
+  }
+  
+  usePuterTTS = true;
+}
+
+setTimeout(initTTS, 1000);
 
 if ('speechSynthesis' in window) {
   window.speechSynthesis.onvoiceschanged = loadVoices;
@@ -185,7 +299,100 @@ function getBestVoice(gender = 'male') {
 }
 
 function speakText(text, priority = false) {
-  if (!voiceEnabled || !('speechSynthesis' in window)) return;
+  if (!voiceEnabled) return;
+  
+  if (!priority && currentAudio) {
+    currentAudio.pause();
+    currentAudio = null;
+  }
+  
+  // Use Puter.js only (Web Speech disabled for testing)
+  speakWithPuter(text, priority);
+  // speakWithWebSpeech(text, priority);
+}
+
+const PUTER_VOICES = {
+  // Personality mappings
+  sassy: 'Joanna',
+  grandma: 'Salli',
+  commentator: 'Matthew',
+  trash: 'Joey',
+  confused: 'Justin',
+  // Manual voice selections
+  alloy: 'Joanna',
+  echo: 'Joey',
+  fable: 'Ivy',
+  onyx: 'Matthew',
+  nova: 'Amy',
+  shimmer: 'Salli'
+};
+
+async function speakWithPuter(text, priority = false) {
+  try {
+    const autoVoice = document.getElementById('autoVoice')?.checked;
+    let voiceName;
+    
+    if (autoVoice) {
+      // Use personality-based voice
+      voiceName = PUTER_VOICES[currentPersonality] || 'Joanna';
+    } else {
+      // Use manually selected voice
+      voiceName = selectedVoiceId || 'Joanna';
+    }
+    
+    console.log('Using voice:', voiceName);
+    
+    const audio = await puter.ai.txt2speech(text, {
+      provider: 'aws-polly',
+      voice: voiceName,
+      engine: 'neural',
+      language: 'en-US'
+    });
+    
+    if (!audio) {
+      throw new Error('No audio returned');
+    }
+    
+    // Stop any existing audio
+    if (currentAudio) {
+      currentAudio.pause();
+      currentAudio = null;
+    }
+    
+    currentAudio = audio;
+    
+    audio.onended = () => {
+      if (priority && autoVoice && opponentComment?.textContent) {
+        setTimeout(() => {
+          speakWithPuter(opponentComment.textContent, false);
+        }, 500);
+      }
+    };
+    
+    audio.onerror = (e) => {
+      if (e.error !== 'abort') {
+        console.error('Puter audio error:', e);
+      }
+    };
+    
+    // Play audio and catch abort errors silently
+    try {
+      await audio.play();
+    } catch (playError) {
+      // Ignore abort errors - they happen when audio is interrupted
+      if (playError.name !== 'AbortError') {
+        console.error('Puter play error:', playError);
+      }
+    }
+  } catch (error) {
+    if (error.name !== 'AbortError') {
+      console.error('Puter TTS error:', error);
+    }
+  }
+}
+
+function speakWithWebSpeech(text, priority = false) {
+  if (!('speechSynthesis' in window)) return;
   
   if (!priority) {
     window.speechSynthesis.cancel();
@@ -267,20 +474,22 @@ voiceToggle.addEventListener('click', () => {
     voiceIcon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />';
     voiceToggle.classList.remove('bg-green-600');
     voiceToggle.classList.add('bg-gray-700');
-    window.speechSynthesis.cancel();
+    if (currentAudio) {
+      currentAudio.pause();
+      currentAudio = null;
+    }
   }
 });
 
-document.getElementById('voiceType').addEventListener('change', (e) => {
-  selectedVoiceType = e.target.value;
-  const testText = selectedVoiceType === 'male' ? 'Hello, I am ready to play chess.' : 'Hello, I am ready to play chess.';
+document.getElementById('voiceSelector').addEventListener('change', (e) => {
+  selectedVoiceId = e.target.value;
+  localStorage.setItem('selectedVoiceId', selectedVoiceId);
+  const testText = `Hello, this is a test of the ${selectedVoiceId} voice. I am ready to play chess.`;
   speakText(testText, true);
 });
 
 document.getElementById('testVoiceBtn').addEventListener('click', () => {
-  const testText = selectedVoiceType === 'male' 
-    ? 'Hello, this is a test of the male voice.' 
-    : 'Hello, this is a test of the female voice.';
+  const testText = `Hello, this is a test of the ${selectedVoiceId} voice. I am ready to play chess.`;
   speakText(testText, true);
 });
 
@@ -746,6 +955,7 @@ function setLoading(loading) {
 }
 
 async function changePersonality(personality) {
+  currentPersonality = personality;
   try {
     const response = await fetch('/api/personality', {
       method: 'POST',
@@ -754,7 +964,7 @@ async function changePersonality(personality) {
     });
     
     const result = await response.json();
-    if (result.success) {
+    if (result.success && opponentName) {
       opponentName.textContent = result.name;
     }
   } catch (error) {

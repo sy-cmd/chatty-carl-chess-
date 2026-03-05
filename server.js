@@ -6,6 +6,7 @@ const StockfishPlayer = require('./src/stockfishPlayer');
 const { initGroq, generateCommentary, generateMoveExplanation } = require('./src/llmPlayer');
 const { getAllPersonalities, getPersonalityName } = require('./src/prompts');
 const Database = require('./src/database');
+const { synthesizeSpeech, getAvailableVoices, getVoiceByPersonality, getVoicesByGender, getCacheStats, clearCache, PERSONALITY_VOICES, isConfigured, DEFAULT_MODEL, HD_MODEL } = require('./src/ttsService');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -524,6 +525,67 @@ app.post('/api/mode', (req, res) => {
 
 app.get('/api/mode', (req, res) => {
   res.json({ mode: gameMode, playerColor: playerColor });
+});
+
+app.post('/api/speak', async (req, res) => {
+  try {
+    const { text, voiceId, personality, model } = req.body;
+    
+    if (!text) {
+      return res.status(400).json({ error: 'Missing text parameter' });
+    }
+    
+    let selectedVoiceId = voiceId;
+    
+    if (!selectedVoiceId && personality) {
+      const voice = getVoiceByPersonality(personality);
+      selectedVoiceId = voice.id;
+    }
+    
+    selectedVoiceId = selectedVoiceId || 'alloy';
+    
+    const selectedModel = model === 'hd' ? HD_MODEL : DEFAULT_MODEL;
+    
+    const audioBuffer = await synthesizeSpeech(text, selectedVoiceId, selectedModel);
+    
+    res.set('Content-Type', 'audio/mpeg');
+    res.set('Content-Disposition', 'inline');
+    res.send(audioBuffer);
+  } catch (error) {
+    console.error('TTS error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/voices', (req, res) => {
+  try {
+    const gender = req.query.gender;
+    const voices = gender ? getVoicesByGender(gender) : getAvailableVoices();
+    res.json({ 
+      voices,
+      personalityVoices: PERSONALITY_VOICES
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/tts-status', (req, res) => {
+  res.json({ 
+    configured: isConfigured(),
+    message: isConfigured() 
+      ? 'OpenAI TTS is ready' 
+      : 'TTS not configured - will use browser fallback'
+  });
+});
+
+app.get('/api/tts-cache', (req, res) => {
+  res.json(getCacheStats());
+});
+
+app.post('/api/tts-cache/clear', (req, res) => {
+  clearCache();
+  res.json({ success: true, message: 'Cache cleared' });
 });
 
 app.post('/api/pvp-move', async (req, res) => {
