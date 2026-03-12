@@ -504,6 +504,7 @@ async function fetchGameState() {
 }
 
 function handleAiMoveResult(result) {
+  showThinking(false);
   if (announceMovesCheckbox && announceMovesCheckbox.checked) {
     if (result.state.history && result.state.history.length > 0) {
       const lastMove = result.state.history[result.state.history.length - 1];
@@ -727,13 +728,26 @@ async function makeMove(from, to, promotion = 'q') {
                 body: JSON.stringify({ difficulty })
               });
               
+              if (!aiResponse.ok) {
+                console.error('AI move request failed:', aiResponse.status);
+                showThinking(false);
+                opponentComment.textContent = "I'm having trouble thinking! Try again.";
+                return;
+              }
+              
               const aiResult = await aiResponse.json();
               
               if (aiResult.success) {
                 handleAiMoveResult(aiResult);
+              } else {
+                console.error('AI move failed:', aiResult.error);
+                showThinking(false);
+                opponentComment.textContent = aiResult.error || "I couldn't make a move!";
               }
             } catch (aiError) {
               console.error('AI move error:', aiError);
+              showThinking(false);
+              opponentComment.textContent = "Oops! Something went wrong.";
             }
           }, 200);
         }, 250);
@@ -860,7 +874,7 @@ function renderBoard(legalMovesData, history) {
         square.classList.add('last-move');
       }
       
-      const piece = board[row][col];
+      const piece = board[displayRow][displayCol];
       if (piece) {
         const pieceSpan = document.createElement('span');
         pieceSpan.className = `piece ${piece.color}`;
@@ -983,6 +997,12 @@ function addMoveToHistory(move) {
 
 function setLoading(loading) {
   loadingIndicator.classList.toggle('hidden', !loading);
+}
+
+function showThinking(show) {
+  if (show) {
+    opponentComment.textContent = "🤔 Thinking...";
+  }
 }
 
 async function changePersonality(personality) {
