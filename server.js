@@ -5,6 +5,8 @@ const GameLogic = require('./src/gameLogic');
 const StockfishPlayer = require('./src/stockfishPlayer');
 const { initGroq, generateCommentary, generateMoveExplanation } = require('./src/llmPlayer');
 const { getAllPersonalities, getPersonalityName } = require('./src/prompts');
+const Database = require('./src/database');
+const { synthesizeSpeech, getAvailableVoices, getVoiceByPersonality, getVoicesByGender, getCacheStats, clearCache, PERSONALITY_VOICES, isConfigured, DEFAULT_MODEL, HD_MODEL } = require('./src/ttsService');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -13,9 +15,19 @@ let difficulty = 10;
 const game = new GameLogic();
 const stockfish = new StockfishPlayer(difficulty);
 
+let gameStartTime = null;
+let currentGameMoves = [];
+
+let gameMode = 'ai';
+let playerColor = 'white';
+
 game.setStockfish(stockfish);
 
 initGroq(process.env.GROQ_API_KEY);
+
+Database.initDatabase().catch(err => {
+  console.error('Failed to initialize database:', err);
+});
 
 async function initStockfish() {
   try {
@@ -65,6 +77,11 @@ app.post('/api/move', async (req, res) => {
       });
     }
 
+    if (!gameStartTime) {
+      gameStartTime = Date.now();
+    }
+    currentGameMoves.push({ from, to, color: 'white', timestamp: Date.now() });
+
     const stateAfterPlayerMove = game.getState();
     const playerMoveNotation = `${from}-${to}`;
     
@@ -77,8 +94,6 @@ app.post('/api/move', async (req, res) => {
       }
     }
     
-    const evaluationBefore = await getMoveEvaluation(stateAfterPlayerMove.fen);
-    
     if (stateAfterPlayerMove.gameOver) {
       const llmComment = await generateCommentary(
         stateAfterPlayerMove,
@@ -87,6 +102,8 @@ app.post('/api/move', async (req, res) => {
         true,
         stateAfterPlayerMove.result
       );
+      
+      saveGameToDatabase(stateAfterPlayerMove);
       
       return res.json({
         success: true,
@@ -98,15 +115,45 @@ app.post('/api/move', async (req, res) => {
       });
     }
 
+    res.json({
+      success: true,
+      state: stateAfterPlayerMove,
+      moveExplanation,
+      gameOver: false
+    });
+
+  } catch (error) {
+    console.error('Move error:', error);
+    res.status(500).json({ error: error.message, success: false });
+  }
+});
+
+app.post('/api/ai-move', async (req, res) => {
+  try {
+    const { difficulty: diff } = req.body;
+    
+    if (diff) {
+      difficulty = diff;
+      await stockfish.setDifficulty(diff);
+    }
+    
+    const stateBeforeAi = game.getState();
+    const evaluationBefore = await getMoveEvaluation(stateBeforeAi.fen);
+    
     let stockfishMoveResult;
+    let stockfishMove = null;
     try {
-      const fen = stateAfterPlayerMove.fen;
+      const fen = stateBeforeAi.fen;
       const bestMove = await stockfish.getBestMove(fen);
       
       if (bestMove) {
         const sfFrom = bestMove.slice(0, 2);
         const sfTo = bestMove.slice(2, 4);
         stockfishMoveResult = game.makeMove(sfFrom, sfTo);
+        if (stockfishMoveResult.success) {
+          stockfishMove = { from: sfFrom, to: sfTo, color: 'black', timestamp: Date.now() };
+          currentGameMoves.push(stockfishMove);
+        }
       }
     } catch (sfError) {
       console.error('Stockfish error:', sfError.message);
@@ -120,7 +167,6 @@ app.post('/api/move', async (req, res) => {
           success: true,
           state: game.getState(),
           llmComment: "I'm confused! Your turn again!",
-          moveExplanation,
           gameOver: true,
           result: 'White wins!'
         });
@@ -130,6 +176,10 @@ app.post('/api/move', async (req, res) => {
     const finalState = game.getState();
     const stockfishMoveNotation = stockfishMoveResult.move ? 
       `${stockfishMoveResult.move.from}-${stockfishMoveResult.move.to}` : 'my move';
+    
+    const playerMoveNotation = currentGameMoves.length >= 2 
+      ? `${currentGameMoves[currentGameMoves.length - 2].from}-${currentGameMoves[currentGameMoves.length - 2].to}`
+      : 'your move';
 
     let llmComment = await generateCommentary(
       finalState,
@@ -151,11 +201,14 @@ app.post('/api/move', async (req, res) => {
       }
     }
 
+    if (finalState.gameOver) {
+      saveGameToDatabase(finalState);
+    }
+
     res.json({
       success: true,
       state: finalState,
       llmComment,
-      moveExplanation,
       mistakeDetected,
       blunderDetected,
       gameOver: finalState.gameOver,
@@ -163,7 +216,7 @@ app.post('/api/move', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Move error:', error);
+    console.error('AI move error:', error);
     res.status(500).json({ error: error.message, success: false });
   }
 });
@@ -234,6 +287,8 @@ app.post('/api/evaluate', async (req, res) => {
 
 app.post('/api/reset', (req, res) => {
   try {
+    gameStartTime = Date.now();
+    currentGameMoves = [];
     const state = game.reset();
     res.json({ success: true, state });
   } catch (error) {
@@ -258,6 +313,353 @@ app.post('/api/personality', (req, res) => {
 app.get('/api/personalities', (req, res) => {
   res.json(getAllPersonalities());
 });
+
+app.get('/api/games', (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = parseInt(req.query.offset) || 0;
+    const games = Database.getGames(limit, offset);
+    res.json(games);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/games/:id', (req, res) => {
+  try {
+    const game = Database.getGame(req.params.id);
+    if (game) {
+      res.json(game);
+    } else {
+      res.status(404).json({ error: 'Game not found' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/games/:id', (req, res) => {
+  try {
+    Database.deleteGame(req.params.id);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/stats', (req, res) => {
+  try {
+    const stats = Database.getStats();
+    res.json(stats);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/analyze', async (req, res) => {
+  try {
+    const { gameId } = req.body;
+    
+    let gameData;
+    if (gameId) {
+      gameData = Database.getGame(gameId);
+    }
+    
+    if (!gameData || !gameData.pgn) {
+      return res.status(400).json({ error: 'No game found to analyze' });
+    }
+    
+    const moves = gameData.pgn.split(' ').filter(m => m.match(/^[a-h][1-8]-[a-h][1-8]$/));
+    const analysis = await analyzeGame(moves, gameData.difficulty || 10);
+    
+    if (gameId) {
+      const { Chess } = require('chess.js');
+      const chess = new Chess();
+      
+      for (const move of moves) {
+        const [from, to] = move.split('-');
+        chess.move({ from, to, promotion: 'q' });
+      }
+      
+      const finalFen = chess.fen();
+      const finalEval = await stockfish.getEvaluation(finalFen);
+      analysis.finalEvaluation = finalEval;
+    }
+    
+    res.json(analysis);
+  } catch (error) {
+    console.error('Analysis error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+async function analyzeGame(moves, difficulty) {
+  const { Chess } = require('chess.js');
+  const chess = new Chess();
+  
+  const analysis = {
+    moves: [],
+    mistakes: [],
+    blunders: [],
+    totalMoves: moves.length,
+    accuracy: 0,
+    evaluationHistory: []
+  };
+  
+  let previousEval = 0;
+  
+  for (let i = 0; i < moves.length; i++) {
+    const move = moves[i];
+    const [from, to] = move.split('-');
+    
+    const moveResult = chess.move({ from, to, promotion: 'q' });
+    if (!moveResult) continue;
+    
+    const fen = chess.fen();
+    const evalScore = await stockfish.getEvaluation(fen);
+    
+    const evalDelta = i > 0 ? Math.abs(evalScore - previousEval) : 0;
+    
+    let classification = 'good';
+    let alternative = null;
+    
+    if (evalDelta > 4) {
+      classification = 'blunder';
+      analysis.blunders.push({
+        moveNumber: Math.floor(i / 2) + 1,
+        color: i % 2 === 0 ? 'white' : 'black',
+        move: move,
+        evaluationDrop: evalDelta
+      });
+      
+      try {
+        const bestMove = await stockfish.getBestMove(fen);
+        if (bestMove) {
+          alternative = {
+            from: bestMove.slice(0, 2),
+            to: bestMove.slice(2, 4)
+          };
+        }
+      } catch (e) {}
+    } else if (evalDelta > 2) {
+      classification = 'mistake';
+      analysis.mistakes.push({
+        moveNumber: Math.floor(i / 2) + 1,
+        color: i % 2 === 0 ? 'white' : 'black',
+        move: move,
+        evaluationDrop: evalDelta
+      });
+    }
+    
+    analysis.moves.push({
+      moveNumber: Math.floor(i / 2) + 1,
+      color: i % 2 === 0 ? 'white' : 'black',
+      move: move,
+      evaluation: evalScore,
+      classification: classification,
+      alternative: alternative,
+      inCheck: chess.inCheck()
+    });
+    
+    analysis.evaluationHistory.push({
+      move: i + 1,
+      evaluation: evalScore
+    });
+    
+    previousEval = evalScore;
+  }
+  
+  const totalErrors = analysis.mistakes.length + analysis.blunders.length;
+  analysis.accuracy = Math.max(0, 100 - (totalErrors / moves.length) * 100);
+  
+  const openingNames = {
+    'e2e4': 'King\'s Pawn Opening',
+    'e2e4 e7e5': 'Open Game',
+    'e2e4 c7c5': 'Sicilian Defense',
+    'e2e4 e7e5 g1f3 b8c6': 'Ruy Lopez',
+    'd2d4 d7d5 c2c4': 'Queen\'s Gambit',
+    'd2d4 g8f6 c2c4 e7e6 g1f3': 'King\'s Indian Defense',
+    'e2e4 e7e6 d2d4 d7d5': 'French Defense',
+    'e2e4 e7e5 f1c4': 'Italian Game',
+    'd2d4 d7d5 g1f3': 'Closed Game',
+    'g1f3 d7d5 d2d4 g8f6 c2c4': 'Slav Defense'
+  };
+  
+  const gameMoves = moves.slice(0, 5).join(' ');
+  analysis.opening = openingNames[gameMoves] || 'Unknown Opening';
+  
+  return analysis;
+}
+
+app.post('/api/mode', (req, res) => {
+  try {
+    const { mode, color } = req.body;
+    gameMode = mode || 'ai';
+    
+    if (color) {
+      playerColor = color;
+    }
+    
+    if (gameMode === 'pvp') {
+      game.reset();
+      currentGameMoves = [];
+      gameStartTime = null;
+    }
+    
+    res.json({ 
+      success: true, 
+      mode: gameMode,
+      playerColor: playerColor
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/mode', (req, res) => {
+  res.json({ mode: gameMode, playerColor: playerColor });
+});
+
+app.post('/api/speak', async (req, res) => {
+  try {
+    const { text, voiceId, personality, model } = req.body;
+    
+    if (!text) {
+      return res.status(400).json({ error: 'Missing text parameter' });
+    }
+    
+    let selectedVoiceId = voiceId;
+    
+    if (!selectedVoiceId && personality) {
+      const voice = getVoiceByPersonality(personality);
+      selectedVoiceId = voice.id;
+    }
+    
+    selectedVoiceId = selectedVoiceId || 'alloy';
+    
+    const selectedModel = model === 'hd' ? HD_MODEL : DEFAULT_MODEL;
+    
+    const audioBuffer = await synthesizeSpeech(text, selectedVoiceId, selectedModel);
+    
+    res.set('Content-Type', 'audio/mpeg');
+    res.set('Content-Disposition', 'inline');
+    res.send(audioBuffer);
+  } catch (error) {
+    console.error('TTS error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/voices', (req, res) => {
+  try {
+    const gender = req.query.gender;
+    const voices = gender ? getVoicesByGender(gender) : getAvailableVoices();
+    res.json({ 
+      voices,
+      personalityVoices: PERSONALITY_VOICES
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/tts-status', (req, res) => {
+  res.json({ 
+    configured: isConfigured(),
+    message: isConfigured() 
+      ? 'OpenAI TTS is ready' 
+      : 'TTS not configured - will use browser fallback'
+  });
+});
+
+app.get('/api/tts-cache', (req, res) => {
+  res.json(getCacheStats());
+});
+
+app.post('/api/tts-cache/clear', (req, res) => {
+  clearCache();
+  res.json({ success: true, message: 'Cache cleared' });
+});
+
+app.post('/api/pvp-move', async (req, res) => {
+  try {
+    const { from, to, promotion } = req.body;
+    
+    if (!from || !to) {
+      return res.status(400).json({ error: 'Missing from or to square' });
+    }
+
+    const playerMoveResult = game.makeMove(from, to, promotion || 'q');
+    
+    if (!playerMoveResult.success) {
+      return res.json({ 
+        success: false, 
+        error: playerMoveResult.error,
+        state: game.getState()
+      });
+    }
+
+    if (!gameStartTime) {
+      gameStartTime = Date.now();
+    }
+    currentGameMoves.push({ from, to, color: game.getState().turn, timestamp: Date.now() });
+
+    const stateAfterPlayerMove = game.getState();
+    
+    if (stateAfterPlayerMove.gameOver) {
+      savePvpGame(stateAfterPlayerMove);
+      
+      return res.json({
+        success: true,
+        state: stateAfterPlayerMove,
+        gameOver: true,
+        result: stateAfterPlayerMove.result
+      });
+    }
+
+    res.json({
+      success: true,
+      state: stateAfterPlayerMove,
+      gameOver: false
+    });
+
+  } catch (error) {
+    console.error('PvP move error:', error);
+    res.status(500).json({ error: error.message, success: false });
+  }
+});
+
+function savePvpGame(finalState) {
+  if (!gameStartTime || currentGameMoves.length === 0) return;
+  
+  const durationSeconds = Math.floor((Date.now() - gameStartTime) / 1000);
+  
+  let resultStr = 'draw';
+  if (finalState.result) {
+    if (finalState.result.includes('White wins')) resultStr = 'white_win';
+    else if (finalState.result.includes('Black wins')) resultStr = 'black_win';
+  }
+  
+  const pgn = currentGameMoves.map((m, i) => {
+    const moveNum = Math.floor(i / 2) + 1;
+    return i % 2 === 0 ? `${moveNum}. ${m.from}-${m.to}` : `${m.from}-${m.to}`;
+  }).join(' ');
+  
+  try {
+    Database.saveGame({
+      playerColor: playerColor,
+      opponent: 'Local PvP',
+      difficulty: 0,
+      result: resultStr,
+      pgn: pgn,
+      analysis: null,
+      durationSeconds: durationSeconds
+    });
+    console.log('PvP game saved to database');
+  } catch (err) {
+    console.error('Failed to save PvP game:', err);
+  }
+}
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));

@@ -20,14 +20,17 @@ class StockfishPlayer {
     }
   }
 
-  async getBestMove(fen) {
+  async getBestMove(fen, timeoutMs = 10000) {
     if (!this.engine || !this.isReady) {
       throw new Error('Stockfish not initialized');
     }
 
     try {
       await this.engine.position(fen);
-      const result = await this.engine.go({ depth: 15 });
+      const result = await Promise.race([
+        this.engine.go({ depth: 15 }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Stockfish timeout')), timeoutMs))
+      ]);
       return result.bestmove;
     } catch (error) {
       console.error('Stockfish getBestMove error:', error);
@@ -43,14 +46,17 @@ class StockfishPlayer {
     }
   }
 
-  async getEvaluation(fen) {
+  async getEvaluation(fen, timeoutMs = 8000) {
     if (!this.engine || !this.isReady) {
       return 0;
     }
 
     try {
       await this.engine.position(fen);
-      const result = await this.engine.go({ depth: 10 });
+      const result = await Promise.race([
+        this.engine.go({ depth: 10 }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Stockfish evaluation timeout')), timeoutMs))
+      ]);
       
       if (result.info && Array.isArray(result.info)) {
         for (const info of result.info) {
