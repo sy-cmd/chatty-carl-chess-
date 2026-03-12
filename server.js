@@ -94,8 +94,6 @@ app.post('/api/move', async (req, res) => {
       }
     }
     
-    const evaluationBefore = await getMoveEvaluation(stateAfterPlayerMove.fen);
-    
     if (stateAfterPlayerMove.gameOver) {
       const llmComment = await generateCommentary(
         stateAfterPlayerMove,
@@ -104,6 +102,8 @@ app.post('/api/move', async (req, res) => {
         true,
         stateAfterPlayerMove.result
       );
+      
+      saveGameToDatabase(stateAfterPlayerMove);
       
       return res.json({
         success: true,
@@ -115,42 +115,35 @@ app.post('/api/move', async (req, res) => {
       });
     }
 
-    function saveGameToDatabase(finalState) {
-      if (!gameStartTime || currentGameMoves.length === 0) return;
-      
-      const durationSeconds = Math.floor((Date.now() - gameStartTime) / 1000);
-      
-      let resultStr = 'draw';
-      if (finalState.result) {
-        if (finalState.result.includes('White wins')) resultStr = 'win';
-        else if (finalState.result.includes('Black wins')) resultStr = 'loss';
-      }
-      
-      const pgn = currentGameMoves.map((m, i) => {
-        const moveNum = Math.floor(i / 2) + 1;
-        return i % 2 === 0 ? `${moveNum}. ${m.from}-${m.to}` : `${m.from}-${m.to}`;
-      }).join(' ');
-      
-      try {
-        Database.saveGame({
-          playerColor: 'white',
-          opponent: game.getPersonality(),
-          difficulty: difficulty,
-          result: resultStr,
-          pgn: pgn,
-          analysis: null,
-          durationSeconds: durationSeconds
-        });
-        console.log('Game saved to database');
-      } catch (err) {
-        console.error('Failed to save game:', err);
-      }
-    }
+    res.json({
+      success: true,
+      state: stateAfterPlayerMove,
+      moveExplanation,
+      gameOver: false
+    });
 
+  } catch (error) {
+    console.error('Move error:', error);
+    res.status(500).json({ error: error.message, success: false });
+  }
+});
+
+app.post('/api/ai-move', async (req, res) => {
+  try {
+    const { difficulty: diff } = req.body;
+    
+    if (diff) {
+      difficulty = diff;
+      await stockfish.setDifficulty(diff);
+    }
+    
+    const stateBeforeAi = game.getState();
+    const evaluationBefore = await getMoveEvaluation(stateBeforeAi.fen);
+    
     let stockfishMoveResult;
     let stockfishMove = null;
     try {
-      const fen = stateAfterPlayerMove.fen;
+      const fen = stateBeforeAi.fen;
       const bestMove = await stockfish.getBestMove(fen);
       
       if (bestMove) {
@@ -174,7 +167,6 @@ app.post('/api/move', async (req, res) => {
           success: true,
           state: game.getState(),
           llmComment: "I'm confused! Your turn again!",
-          moveExplanation,
           gameOver: true,
           result: 'White wins!'
         });
@@ -184,6 +176,10 @@ app.post('/api/move', async (req, res) => {
     const finalState = game.getState();
     const stockfishMoveNotation = stockfishMoveResult.move ? 
       `${stockfishMoveResult.move.from}-${stockfishMoveResult.move.to}` : 'my move';
+    
+    const playerMoveNotation = currentGameMoves.length >= 2 
+      ? `${currentGameMoves[currentGameMoves.length - 2].from}-${currentGameMoves[currentGameMoves.length - 2].to}`
+      : 'your move';
 
     let llmComment = await generateCommentary(
       finalState,
@@ -205,25 +201,22 @@ app.post('/api/move', async (req, res) => {
       }
     }
 
-    const response = {
-      success: true,
-      state: finalState,
-      llmComment,
-      moveExplanation,
-      mistakeDetected,
-      blunderDetected,
-      gameOver: finalState.gameOver,
-      result: finalState.result
-    };
-
     if (finalState.gameOver) {
       saveGameToDatabase(finalState);
     }
 
-    res.json(response);
+    res.json({
+      success: true,
+      state: finalState,
+      llmComment,
+      mistakeDetected,
+      blunderDetected,
+      gameOver: finalState.gameOver,
+      result: finalState.result
+    });
 
   } catch (error) {
-    console.error('Move error:', error);
+    console.error('AI move error:', error);
     res.status(500).json({ error: error.message, success: false });
   }
 });

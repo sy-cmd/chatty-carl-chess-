@@ -64,18 +64,8 @@
           </div>
         </div>
 
-        <div class="flex items-start gap-1 sm:gap-2">
-          <!-- Captured pieces (black - what player lost) -->
-          <div class="w-8 sm:w-10 md:w-12 flex flex-col justify-center">
-            <div class="captured-pieces" id="capturedBlack"></div>
-          </div>
-          
+        <div class="flex justify-center w-full">
           <div id="board" class="board"></div>
-          
-          <!-- Captured pieces (white - what Carl lost) -->
-          <div class="w-8 sm:w-10 md:w-12 flex flex-col justify-center">
-            <div class="captured-pieces" id="capturedWhite"></div>
-          </div>
         </div>
         
         <div class="mt-4 space-y-3">
@@ -162,10 +152,6 @@
           
           <!-- Options -->
           <div class="flex items-center justify-center gap-6">
-            <label class="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
-              <input type="checkbox" id="showCoordinates" check>
-              📍 Coordinates
-            </label>
             <label class="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
               <input type="checkbox" id="soundEffects">
               🔊 Sound

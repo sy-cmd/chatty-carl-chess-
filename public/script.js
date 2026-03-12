@@ -48,7 +48,7 @@ const hintBtn = document.getElementById('hintBtn');
 const themeSelect = document.getElementById('themeSelect');
 const difficultySelect = document.getElementById('difficultySelect');
 const timeControlSelect = document.getElementById('timeControl');
-const showCoordinatesCheckbox = document.getElementById('showCoordinates');
+const showCoordinatesCheckbox = null;
 const soundEffectsCheckbox = document.getElementById('soundEffects');
 const explainMovesCheckbox = document.getElementById('explainMoves');
 const whiteTimerEl = document.getElementById('whiteTimer');
@@ -678,11 +678,6 @@ async function makeMove(from, to, promotion = 'q') {
 
   setLoading(true);
   
-  if (gameMode === 'ai') {
-    currentTurn = 'b';
-    startTimerForCurrentTurn();
-  }
-  
   try {
     const url = gameMode === 'pvp' ? '/api/pvp-move' : '/api/move';
     const body = gameMode === 'pvp' 
@@ -701,7 +696,47 @@ async function makeMove(from, to, promotion = 'q') {
       undoStack.push({ from, to, stateBefore: getBoardState() });
       
       if (gameMode === 'ai') {
-        handleAiMoveResult(result);
+        // Show user's move immediately
+        currentTurn = 'b';
+        startTimerForCurrentTurn();
+        updateBoard(result.state);
+        
+        // Handle game over after player move
+        if (result.gameOver) {
+          gameOver = true;
+          gameOverDisplay.textContent = result.result;
+          gameOverDisplay.classList.remove('hidden');
+          stopTimer();
+          playSound('gameOver');
+          announceGameOver(result.result);
+          opponentComment.textContent = result.llmComment || "Fine, you won...";
+          setLoading(false);
+          return;
+        }
+        
+        // Delay before Stockfish starts thinking
+        setTimeout(async () => {
+          showThinking(true);
+          
+          // Another delay before making AI move
+          setTimeout(async () => {
+            try {
+              const aiResponse = await fetch('/api/ai-move', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ difficulty })
+              });
+              
+              const aiResult = await aiResponse.json();
+              
+              if (aiResult.success) {
+                handleAiMoveResult(aiResult);
+              }
+            } catch (aiError) {
+              console.error('AI move error:', aiError);
+            }
+          }, 200);
+        }, 250);
       } else {
         handlePvpMoveResult(result, from, to);
       }
@@ -770,11 +805,7 @@ function updateBoard(state) {
 
 function renderBoard(legalMovesData, history) {
   boardElement.innerHTML = '';
-  boardElement.className = `board theme-${theme}`;
-  
-  if (showCoordinatesCheckbox.checked) {
-    boardElement.classList.add('with-coordinates');
-  }
+  boardElement.className = `board theme-${theme} with-coordinates`;
   
   const highlightedSquares = new Set();
   const capturedSquares = new Set();
@@ -1217,10 +1248,6 @@ function changeTimeControl(time) {
   }
 }
 
-function toggleCoordinates() {
-  fetchGameState();
-}
-
 document.querySelectorAll('.promotion-piece').forEach(btn => {
   btn.addEventListener('click', async () => {
     const piece = btn.dataset.piece;
@@ -1240,7 +1267,6 @@ hintBtn.addEventListener('click', getHint);
 themeSelect.addEventListener('change', (e) => changeTheme(e.target.value));
 difficultySelect.addEventListener('change', (e) => changeDifficulty(e.target.value));
 timeControlSelect.addEventListener('change', (e) => changeTimeControl(e.target.value));
-showCoordinatesCheckbox.addEventListener('change', toggleCoordinates);
 
 const modeAiBtn = document.getElementById('modeAiBtn');
 const modePvpBtn = document.getElementById('modePvpBtn');
