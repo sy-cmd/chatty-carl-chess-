@@ -1411,12 +1411,24 @@ async function loadGameHistory() {
             game.result === 'win' ? 'bg-green-600 text-white' : 
             game.result === 'loss' ? 'bg-red-600 text-white' : 'bg-gray-600 text-white'
           }">${game.result === 'win' ? 'Win' : game.result === 'loss' ? 'Loss' : 'Draw'}</span>
+          <button class="replay-btn bg-teal-600 hover:bg-teal-700 text-white px-2 py-1 rounded text-sm" data-id="${game.id}">
+            Replay
+          </button>
           <button class="analyze-btn bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-sm" data-id="${game.id}">
             Analyze
           </button>
         </div>
       </div>
     `).join('');
+    
+    document.querySelectorAll('.replay-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const gameId = e.target.dataset.id;
+        console.log('Replay button clicked, gameId:', gameId);
+        historyModal.classList.add('hidden');
+        await loadGameForReplay(gameId);
+      });
+    });
     
     document.querySelectorAll('.analyze-btn').forEach(btn => {
       btn.addEventListener('click', async (e) => {
@@ -1567,6 +1579,8 @@ changePersonality = async function(personality) {
 };
 
 function updateCapturedPieces() {
+  if (!capturedWhiteEl || !capturedBlackEl) return;
+  
   const pieceOrder = ['q', 'r', 'b', 'n', 'p'];
   
   capturedWhiteEl.innerHTML = capturedWhite
@@ -1585,6 +1599,10 @@ function updateCapturedPieces() {
 function getPieceChar(type) {
   const chars = { p: '♟', r: '♜', n: '♞', b: '♝', q: '♛', k: '♚' };
   return chars[type] || type;
+}
+
+function getPieceSymbol(type) {
+  return getPieceChar(type);
 }
 
 function getPieceName(type) {
@@ -1688,8 +1706,11 @@ function parsePuzzleFen(fen) {
     }
     board.push(rowPieces);
   }
-  
   return board;
+}
+
+function parseBoardFromFEN(fen) {
+  return parsePuzzleFen(fen);
 }
 
 function renderPuzzleBoard(legalMoves = []) {
@@ -2074,6 +2095,172 @@ function displayOpeningData(opening) {
     movesContainer.innerHTML = '<p class="text-gray-400 text-center">No moves found for this position.</p>';
   }
 }
+
+const replayModal = document.getElementById('replayModal');
+const replayBoardEl = document.getElementById('replayBoard');
+const replaySlider = document.getElementById('replaySlider');
+const replayStartBtn = document.getElementById('replayStartBtn');
+const replayPrevBtn = document.getElementById('replayPrevBtn');
+const replayNextBtn = document.getElementById('replayNextBtn');
+const replayEndBtn = document.getElementById('replayEndBtn');
+const replayMoveInfo = document.getElementById('replayMoveInfo');
+const replayLastMoveEl = document.getElementById('replayLastMove');
+
+let replayPositions = [];
+let replayCurrentIndex = 0;
+
+async function loadGameForReplay(gameId) {
+  console.log('Loading replay for game:', gameId, typeof gameId);
+  
+  if (!gameId) {
+    console.error('No gameId provided');
+    alert('Invalid game ID');
+    return;
+  }
+  
+  if (!replayModal) {
+    console.error('Replay modal not found');
+    alert('Replay modal not found');
+    return;
+  }
+  
+  try {
+    const url = `/api/games/${gameId}`;
+    console.log('Fetching:', url);
+    const response = await fetch(url);
+    console.log('Response status:', response.status);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error: ${response.status}`);
+    }
+    
+    const game = await response.json();
+    console.log('Game data keys:', Object.keys(game));
+    console.log('Has positions:', !!game.positions, 'Length:', game.positions?.length);
+    console.log('Opponent:', game.opponent);
+    
+    if (!game) {
+      alert('Game not found');
+      return;
+    }
+    
+    if (!game.positions || game.positions.length === 0) {
+      alert('This game has no move history to replay. It may be incomplete.');
+      return;
+    }
+    
+    replayPositions = game.positions;
+    replayCurrentIndex = 0;
+    
+    const opponentName = game.opponent || 'Unknown';
+    const difficulty = game.difficulty || '';
+    document.getElementById('replayOpponent').textContent = `${opponentName}${difficulty ? ' (Level ' + difficulty + ')' : ''}`;
+    document.getElementById('replayDate').textContent = new Date(game.created_at).toLocaleDateString();
+    document.getElementById('replayResult').textContent = `Result: ${game.result || 'Unknown'}`;
+    
+    console.log('Setting slider max:', replayPositions.length - 1);
+    replaySlider.max = replayPositions.length - 1;
+    replaySlider.value = 0;
+    
+    updateReplayBoard();
+    replayModal.classList.remove('hidden');
+  } catch (error) {
+    console.error('Failed to load game for replay:', error);
+    alert('Failed to load game for replay: ' + error.message);
+  }
+}
+
+function updateReplayBoard() {
+  if (!replayPositions[replayCurrentIndex]) return;
+  
+  const position = replayPositions[replayCurrentIndex];
+  const board = parseBoardFromFEN(position.fen);
+  
+  renderBoardFromArray(board, replayBoardEl, true);
+  
+  const totalMoves = replayPositions.length - 1;
+  replayMoveInfo.textContent = `Move ${replayCurrentIndex} / ${totalMoves}`;
+  replaySlider.value = replayCurrentIndex;
+  
+  if (position.move && position.moveSan) {
+    const color = position.color === 'w' ? 'White' : 'Black';
+    replayLastMoveEl.textContent = `${color}: ${position.moveSan}`;
+  } else {
+    replayLastMoveEl.textContent = '';
+  }
+}
+
+function renderBoardFromArray(board, boardEl, isReplay = false) {
+  boardEl.innerHTML = '';
+  boardEl.style.gridTemplateColumns = 'repeat(8, 1fr)';
+  
+  const isFlipped = isReplay ? false : boardFlipped;
+  
+  for (let row = 0; row < 8; row++) {
+    for (let col = 0; col < 8; col++) {
+      const displayRow = isFlipped ? 7 - row : row;
+      const displayCol = isFlipped ? 7 - col : col;
+      
+      const square = document.createElement('div');
+      const isLight = (row + col) % 2 === 0;
+      square.className = `square ${isLight ? 'light' : 'dark'}`;
+      square.dataset.square = String.fromCharCode(97 + col) + (8 - row);
+      
+      const piece = board[displayRow][displayCol];
+      if (piece) {
+        const pieceSpan = document.createElement('span');
+        pieceSpan.className = `piece ${piece.color}`;
+        
+        const pieceChar = piece.color === 'white' ? piece.type.toUpperCase() : piece.type;
+        const pieceId = PIECE_IDS[pieceChar];
+        
+        pieceSpan.innerHTML = `<svg viewBox="0 0 40 40"><use href="/pieces/standard.svg#${pieceId}"></use></svg>`;
+        square.appendChild(pieceSpan);
+      }
+      
+      boardEl.appendChild(square);
+    }
+  }
+}
+
+replaySlider.addEventListener('input', (e) => {
+  replayCurrentIndex = parseInt(e.target.value);
+  updateReplayBoard();
+});
+
+replayStartBtn.addEventListener('click', () => {
+  replayCurrentIndex = 0;
+  updateReplayBoard();
+});
+
+replayPrevBtn.addEventListener('click', () => {
+  if (replayCurrentIndex > 0) {
+    replayCurrentIndex--;
+    updateReplayBoard();
+  }
+});
+
+replayNextBtn.addEventListener('click', () => {
+  if (replayCurrentIndex < replayPositions.length - 1) {
+    replayCurrentIndex++;
+    updateReplayBoard();
+  }
+});
+
+replayEndBtn.addEventListener('click', () => {
+  replayCurrentIndex = replayPositions.length - 1;
+  updateReplayBoard();
+});
+
+document.getElementById('closeReplayBtn').addEventListener('click', () => {
+  replayModal.classList.add('hidden');
+});
+
+replayModal.addEventListener('click', (e) => {
+  if (e.target === replayModal) {
+    replayModal.classList.add('hidden');
+  }
+});
 
 opponentAvatar.textContent = personalityAvatars[personalitySelect.value] || '♟️';
 

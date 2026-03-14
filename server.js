@@ -33,6 +33,46 @@ let playerColor = 'white';
 
 game.setStockfish(stockfish);
 
+// Save game to database
+function saveGameToDatabase(state) {
+  if (!state || !state.history || state.history.length === 0) {
+    return;
+  }
+  
+  try {
+    // Build PGN from history
+    const pgn = state.history.map((move, index) => {
+      const moveNum = Math.floor(index / 2) + 1;
+      const isWhite = index % 2 === 0;
+      return isWhite ? `${moveNum}. ${move.from}-${move.to}` : `${move.from}-${move.to}`;
+    }).join(' ');
+    
+    const result = state.result || 'unknown';
+    let resultStr = 'draw';
+    if (result && result.includes('wins')) {
+      resultStr = result.includes('White') ? 'win' : 'loss';
+    } else if (result && result.includes('draw')) {
+      resultStr = 'draw';
+    }
+    
+    const durationSeconds = gameStartTime ? Math.floor((Date.now() - gameStartTime) / 1000) : 0;
+    
+    Database.saveGame({
+      playerColor: playerColor,
+      opponent: 'Stockfish',
+      difficulty: difficulty,
+      result: resultStr,
+      pgn: pgn,
+      analysis: null,
+      durationSeconds: durationSeconds
+    });
+    
+    console.log('Game saved to database');
+  } catch (err) {
+    console.error('Failed to save game:', err);
+  }
+}
+
 initGroq(process.env.GROQ_API_KEY);
 
 Database.initDatabase().catch(err => {
@@ -165,27 +205,52 @@ app.post('/api/ai-move', async (req, res) => {
     }
     
     const stateBeforeAi = game.getState();
-    const evaluationBefore = await getMoveEvaluation(stateBeforeAi.fen);
+    
+    // Validate game state
+    if (!stateBeforeAi || !stateBeforeAi.fen) {
+      return res.json({
+        success: false,
+        error: 'Invalid game state',
+        state: game.getState(),
+        llmComment: "Something went wrong!",
+        gameOver: true,
+        result: 'Error'
+      });
+    }
+    
+    const evaluationBefore = await getMoveEvaluation(stateBeforeAi.fen).catch(() => 0);
     
     let stockfishMoveResult;
     let stockfishMove = null;
+    
+    // Try to get move from Stockfish with better error handling
     try {
       const fen = stateBeforeAi.fen;
-      const bestMove = await stockfish.getBestMove(fen);
+      if (!fen || typeof fen !== 'string') {
+        throw new Error('Invalid FEN');
+      }
       
-      if (bestMove) {
+      const bestMove = await stockfish.getBestMove(fen).catch(err => {
+        console.error('Stockfish getBestMove failed:', err.message);
+        return null;
+      });
+      
+      if (bestMove && bestMove.length >= 4) {
         const sfFrom = bestMove.slice(0, 2);
         const sfTo = bestMove.slice(2, 4);
         stockfishMoveResult = game.makeMove(sfFrom, sfTo);
-        if (stockfishMoveResult.success) {
+        
+        if (stockfishMoveResult && stockfishMoveResult.success) {
           stockfishMove = { from: sfFrom, to: sfTo, color: 'black', timestamp: Date.now() };
           currentGameMoves.push(stockfishMove);
         }
       }
     } catch (sfError) {
       console.error('Stockfish error:', sfError.message);
+      stockfishMoveResult = null;
     }
 
+    // Fallback to random move if Stockfish failed
     if (!stockfishMoveResult || !stockfishMoveResult.success) {
       stockfishMoveResult = game.makeRandomMove();
       
@@ -356,6 +421,53 @@ app.get('/api/games/:id', (req, res) => {
   try {
     const game = Database.getGame(req.params.id);
     if (game) {
+      // Parse PGN to get move history with FEN positions
+      if (game.pgn) {
+        const { Chess } = require('chess.js');
+        
+        try {
+          // First instance to get history
+          const chess1 = new Chess();
+          chess1.loadPgn(game.pgn);
+          const history = chess1.history({ verbose: true });
+          
+          // Second instance to build positions step by step
+          const chess2 = new Chess();
+          const positions = [];
+          
+          // Initial position
+          positions.push({
+            moveNumber: 0,
+            fen: chess2.fen(),
+            move: null,
+            moveSan: null
+          });
+          
+          // Play through moves
+          for (let i = 0; i < history.length; i++) {
+            const move = history[i];
+            const moveResult = chess2.move(move);
+            
+            if (moveResult) {
+              const moveNumber = Math.floor(i / 2) + 1;
+              const isWhiteMove = i % 2 === 0;
+              
+              positions.push({
+                moveNumber: moveNumber,
+                fen: chess2.fen(),
+                move: moveResult.from + moveResult.to,
+                moveSan: moveResult.san,
+                color: isWhiteMove ? 'w' : 'b'
+              });
+            }
+          }
+          
+          game.positions = positions;
+        } catch (pgnError) {
+          console.error('Failed to parse PGN for replay:', pgnError);
+        }
+      }
+      
       res.json(game);
     } else {
       res.status(404).json({ error: 'Game not found' });
@@ -697,11 +809,13 @@ app.get('/api/puzzle/next', async (req, res) => {
     const { theme } = req.query;
     const puzzleData = await puzzleService.fetchPuzzle(theme || null);
     
-    // Parse PGN to get FEN at puzzle position
+    const { Chess } = require('chess.js');
+    const chess = new Chess();
     let fen = null;
+    let sideToMove = 'w';
+    
+    // Parse PGN to get FEN at puzzle position
     try {
-      const { Chess } = require('chess.js');
-      const chess = new Chess();
       const initialPly = puzzleData.puzzle.initialPly || 0;
       
       // Load the full PGN and navigate to the puzzle position
@@ -717,6 +831,7 @@ app.get('/api/puzzle/next', async (req, res) => {
         }
         
         fen = chess.fen();
+        sideToMove = fen.split(' ')[1];
       } catch (pgnError) {
         console.error('PGN parse error:', pgnError);
       }
@@ -727,6 +842,29 @@ app.get('/api/puzzle/next', async (req, res) => {
     // Fallback if FEN parsing failed
     if (!fen) {
       fen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+      sideToMove = 'w';
+    }
+    
+    // Fix solution: ensure first move matches side to move in FEN
+    let solution = puzzleData.puzzle.solution || [];
+    
+    // Find first move in solution that matches current side to move
+    while (solution.length > 0 && chess) {
+      const firstMove = solution[0];
+      const fromSquare = firstMove.substring(0, 2);
+      const pieceAtFrom = chess.get(fromSquare);
+      
+      if (pieceAtFrom && pieceAtFrom.color === sideToMove) {
+        break; // First move is correct for current side to move
+      }
+      
+      // Move is for wrong side, skip it and try the next one
+      console.log(`Skipping solution move ${firstMove} - wrong side, trying next`);
+      solution = solution.slice(1);
+    }
+    
+    if (solution.length === 0) {
+      console.log('Could not find valid solution for side to move');
     }
     
     res.json({
@@ -737,7 +875,7 @@ app.get('/api/puzzle/next', async (req, res) => {
         lines: puzzleData.puzzle.lines,
         rating: puzzleData.puzzle.rating,
         themes: puzzleData.puzzle.themes,
-        solution: puzzleData.puzzle.solution,
+        solution: solution,
         initialPly: puzzleData.puzzle.initialPly
       }
     });

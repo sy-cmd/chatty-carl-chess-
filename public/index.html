@@ -80,6 +80,18 @@
           <div id="board" class="board"></div>
         </div>
         
+        <!-- Captured Pieces -->
+        <div class="flex justify-center gap-8 mt-2">
+          <div class="flex items-center gap-2">
+            <span class="text-gray-400 text-lg">♔</span>
+            <div id="capturedWhite" class="flex gap-1 min-h-6"></div>
+          </div>
+          <div class="flex items-center gap-2">
+            <div id="capturedBlack" class="flex gap-1 min-h-6"></div>
+            <span class="text-gray-400 text-lg">♚</span>
+          </div>
+        </div>
+        
         <div class="mt-4 space-y-3">
           <!-- Timers & Material -->
           <div class="flex items-center justify-center gap-4">
@@ -501,6 +513,38 @@
       <div id="openingError" class="hidden text-center py-4">
         <p class="text-red-400">Failed to load opening data. Please try again.</p>
       </div>
+    </div>
+  </div>
+
+  <!-- Replay Modal -->
+  <div id="replayModal" class="fixed inset-0 modal-overlay flex items-center justify-center hidden z-50">
+    <div class="modal p-6 max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-xl font-bold text-white">Game Replay</h3>
+        <button id="closeReplayBtn" class="text-gray-400 hover:text-white text-2xl">&times;</button>
+      </div>
+      
+      <div id="replayInfo" class="mb-4 text-center">
+        <div class="text-white font-bold text-lg" id="replayOpponent"></div>
+        <div class="text-gray-400 text-sm" id="replayDate"></div>
+        <div class="text-yellow-400" id="replayResult"></div>
+      </div>
+      
+      <div id="replayBoard" class="board theme-dark with-coordinates mb-4 mx-auto"></div>
+      
+      <div class="mb-4">
+        <input type="range" id="replaySlider" min="0" max="0" value="0" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+      </div>
+      
+      <div class="flex items-center justify-between mb-4">
+        <button id="replayStartBtn" class="btn btn-gray flex-1 mr-2">⏮ Start</button>
+        <button id="replayPrevBtn" class="btn btn-gray flex-1 mr-2">◀ Prev</button>
+        <span id="replayMoveInfo" class="text-white font-bold px-4">Move 0</span>
+        <button id="replayNextBtn" class="btn btn-gray flex-1 ml-2">Next ▶</button>
+        <button id="replayEndBtn" class="btn btn-gray flex-1 ml-2">⏭ End</button>
+      </div>
+      
+      <div id="replayLastMove" class="text-center text-yellow-400 font-bold text-lg h-8"></div>
     </div>
   </div>
 
