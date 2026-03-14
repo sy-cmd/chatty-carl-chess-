@@ -7,6 +7,16 @@ const { initGroq, generateCommentary, generateMoveExplanation } = require('./src
 const { getAllPersonalities, getPersonalityName } = require('./src/prompts');
 const Database = require('./src/database');
 const { synthesizeSpeech, getAvailableVoices, getVoiceByPersonality, getVoicesByGender, getCacheStats, clearCache, PERSONALITY_VOICES, isConfigured, DEFAULT_MODEL, HD_MODEL } = require('./src/ttsService');
+const puzzleService = require('./src/puzzleService');
+const openingExplorerModule = require('./src/openingExplorer');
+
+// Set Lichess API token if available
+if (process.env.LICHESS_API_TOKEN) {
+  openingExplorerModule.setToken(process.env.LICHESS_API_TOKEN);
+  console.log('Lichess API token configured for Opening Explorer');
+}
+
+const openingExplorer = openingExplorerModule.instance;
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -49,6 +59,23 @@ app.get('/api/state', (req, res) => {
   try {
     const state = game.getState();
     res.json(state);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/legal-moves', (req, res) => {
+  try {
+    const { fen } = req.query;
+    if (!fen) {
+      return res.status(400).json({ error: 'Missing FEN' });
+    }
+    
+    const { Chess } = require('chess.js');
+    const chess = new Chess(fen);
+    const moves = chess.moves({ verbose: true });
+    
+    res.json({ success: true, moves });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -663,6 +690,121 @@ function savePvpGame(finalState) {
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.get('/api/puzzle/next', async (req, res) => {
+  try {
+    const { theme } = req.query;
+    const puzzleData = await puzzleService.fetchPuzzle(theme || null);
+    
+    // Parse PGN to get FEN at puzzle position
+    let fen = null;
+    try {
+      const { Chess } = require('chess.js');
+      const chess = new Chess();
+      const initialPly = puzzleData.puzzle.initialPly || 0;
+      
+      // Load the full PGN and navigate to the puzzle position
+      try {
+        chess.loadPgn(puzzleData.game.pgn);
+        
+        // Get history and keep only moves up to initialPly
+        const history = chess.history({ verbose: true });
+        chess.reset();
+        
+        for (let i = 0; i < Math.min(initialPly, history.length); i++) {
+          chess.move(history[i]);
+        }
+        
+        fen = chess.fen();
+      } catch (pgnError) {
+        console.error('PGN parse error:', pgnError);
+      }
+    } catch (e) {
+      console.error('Failed to parse PGN:', e);
+    }
+    
+    // Fallback if FEN parsing failed
+    if (!fen) {
+      fen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+    }
+    
+    res.json({
+      success: true,
+      puzzle: {
+        id: puzzleData.puzzle.id,
+        fen: fen,
+        lines: puzzleData.puzzle.lines,
+        rating: puzzleData.puzzle.rating,
+        themes: puzzleData.puzzle.themes,
+        solution: puzzleData.puzzle.solution,
+        initialPly: puzzleData.puzzle.initialPly
+      }
+    });
+  } catch (error) {
+    console.error('Puzzle fetch error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/puzzle/solve', async (req, res) => {
+  try {
+    const { puzzleId, theme, rating, solution, timeTakenSeconds } = req.body;
+    
+    const isCorrect = solution && solution.length > 0;
+    
+    Database.savePuzzleAttempt({
+      puzzleId,
+      theme,
+      rating,
+      result: isCorrect ? 'correct' : 'incorrect',
+      timeTakenSeconds
+    });
+    
+    res.json({
+      success: true,
+      correct: isCorrect
+    });
+  } catch (error) {
+    console.error('Puzzle solve error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.get('/api/puzzle/themes', (req, res) => {
+  const themes = puzzleService.getThemes();
+  const themesWithDesc = themes.map(theme => ({
+    id: theme,
+    name: theme.charAt(0).toUpperCase() + theme.slice(1),
+    description: puzzleService.getThemeDescription(theme)
+  }));
+  res.json({ success: true, themes: themesWithDesc });
+});
+
+app.get('/api/puzzle/stats', (req, res) => {
+  try {
+    const stats = Database.getPuzzleStats();
+    res.json({ success: true, stats });
+  } catch (error) {
+    console.error('Puzzle stats error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.get('/api/opening', async (req, res) => {
+  try {
+    const { fen } = req.query;
+    
+    if (!fen) {
+      return res.status(400).json({ success: false, error: 'FEN required' });
+    }
+    
+    const openingData = await openingExplorer.getOpeningData(fen);
+    res.json({ success: true, opening: openingData });
+  } catch (error) {
+    console.error('Opening explorer error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 app.listen(PORT, () => {

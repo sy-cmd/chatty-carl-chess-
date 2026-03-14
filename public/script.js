@@ -1637,6 +1637,444 @@ document.getElementById('explainMovesAlt').addEventListener('change', (e) => {
   explainMovesCheckbox.checked = e.target.checked;
 });
 
+const puzzleModal = document.getElementById('puzzleModal');
+const puzzleBtn = document.getElementById('puzzleBtn');
+const closePuzzleBtn = document.getElementById('closePuzzleBtn');
+const puzzleThemeSelect = document.getElementById('puzzleThemeSelect');
+const puzzleContent = document.getElementById('puzzleContent');
+const puzzleLoading = document.getElementById('puzzleLoading');
+const loadPuzzleBtn = document.getElementById('loadPuzzleBtn');
+const skipPuzzleBtn = document.getElementById('skipPuzzleBtn');
+const puzzleResult = document.getElementById('puzzleResult');
+const puzzleRatingEl = document.getElementById('puzzleRating');
+const puzzleThemeEl = document.getElementById('puzzleTheme');
+
+let currentPuzzle = null;
+let puzzleStartTime = null;
+let puzzleBoard = [];
+let puzzleSelectedSquare = null;
+let puzzleHintShown = false;
+let puzzleLegalMoves = [];
+
+const PUZZLE_FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+const PUZZLE_RANKS = ['8', '7', '6', '5', '4', '3', '2', '1'];
+
+function parsePuzzleFen(fen) {
+  const boardArray = fen.split(' ')[0].split('/');
+  const board = [];
+  
+  for (let row = 0; row < 8; row++) {
+    const rowStr = boardArray[row];
+    const rowPieces = [];
+    let col = 0;
+    
+    for (let i = 0; i < rowStr.length; i++) {
+      const char = rowStr[i];
+      const num = parseInt(char);
+      
+      if (!isNaN(num)) {
+        for (let j = 0; j < num; j++) {
+          rowPieces.push(null);
+          col++;
+        }
+      } else {
+        const isWhite = char === char.toUpperCase();
+        rowPieces.push({
+          type: char.toLowerCase(),
+          color: isWhite ? 'white' : 'black'
+        });
+        col++;
+      }
+    }
+    board.push(rowPieces);
+  }
+  
+  return board;
+}
+
+function renderPuzzleBoard(legalMoves = []) {
+  const boardEl = document.getElementById('puzzleBoard');
+  if (!boardEl) return;
+  
+  boardEl.innerHTML = '';
+  boardEl.className = 'board theme-dark with-coordinates';
+  
+  const highlightedSquares = new Set();
+  legalMoves.forEach(move => {
+    highlightedSquares.add(move.to);
+  });
+  
+  for (let row = 0; row < 8; row++) {
+    for (let col = 0; col < 8; col++) {
+      const square = document.createElement('div');
+      const isDark = (row + col) % 2 === 1;
+      const squareName = PUZZLE_FILES[col] + PUZZLE_RANKS[row];
+      
+      square.className = `square ${isDark ? 'dark' : 'light'}`;
+      square.dataset.file = PUZZLE_FILES[col];
+      square.dataset.rank = PUZZLE_RANKS[row];
+      
+      if (puzzleSelectedSquare === squareName) {
+        square.classList.add('selected');
+      }
+      
+      if (highlightedSquares.has(squareName)) {
+        square.classList.add('highlight');
+      }
+      
+      const piece = puzzleBoard[row][col];
+      if (piece) {
+        const pieceSpan = document.createElement('span');
+        pieceSpan.className = `piece ${piece.color}`;
+        
+        const pieceChar = piece.color === 'white' ? piece.type.toUpperCase() : piece.type;
+        const pieceId = PIECE_IDS[pieceChar];
+        
+        pieceSpan.innerHTML = `<svg viewBox="0 0 40 40"><use href="/pieces/standard.svg#${pieceId}"></use></svg>`;
+        square.appendChild(pieceSpan);
+      }
+      
+      square.addEventListener('click', () => handlePuzzleSquareClick(squareName));
+      boardEl.appendChild(square);
+    }
+  }
+}
+
+function handlePuzzleSquareClick(squareName) {
+  if (!currentPuzzle) return;
+  
+  if (!puzzleSelectedSquare) {
+    const piece = getPuzzlePieceAt(squareName);
+    const turnColor = currentPuzzle.fen.split(' ')[1] === 'w' ? 'white' : 'black';
+    if (piece && piece.color === turnColor) {
+      puzzleSelectedSquare = squareName;
+      renderPuzzleBoard(puzzleLegalMoves);
+    }
+  } else {
+    const isLegalMove = puzzleLegalMoves.some(m => m.from === puzzleSelectedSquare && m.to === squareName);
+    
+    if (isLegalMove) {
+      const move = puzzleLegalMoves.find(m => m.from === puzzleSelectedSquare && m.to === squareName);
+      makePuzzleMove(move.from, move.to);
+    } else {
+      puzzleSelectedSquare = null;
+      renderPuzzleBoard(puzzleLegalMoves);
+    }
+  }
+}
+
+function getPuzzlePieceAt(square) {
+  const file = square[0];
+  const rank = square[1];
+  const col = PUZZLE_FILES.indexOf(file);
+  const row = PUZZLE_RANKS.indexOf(rank);
+  
+  if (col >= 0 && row >= 0 && puzzleBoard[row] && puzzleBoard[row][col]) {
+    return puzzleBoard[row][col];
+  }
+  return null;
+}
+
+function getCorrectMoveFromSolution(solution, legalMoves) {
+  if (!solution || !legalMoves) return null;
+  
+  // Find the first move in solution that's legal
+  for (const solMove of solution) {
+    const fromSq = solMove.substring(0, 2);
+    const toSq = solMove.substring(2, 4);
+    
+    const isLegal = legalMoves.some(m => m.from === fromSq && m.to === toSq);
+    if (isLegal) {
+      return solMove;
+    }
+  }
+  return null;
+}
+
+function makePuzzleMove(from, to) {
+  if (!currentPuzzle || !currentPuzzle.solution) return;
+  
+  const timeTaken = Math.floor((Date.now() - puzzleStartTime) / 1000);
+  const playerMove = from + to;
+  
+  // Find the correct first move from the solution (first legal move in the solution)
+  const expectedMove = getCorrectMoveFromSolution(currentPuzzle.solution, puzzleLegalMoves);
+  
+  const isCorrect = playerMove === expectedMove;
+  
+  puzzleResult.classList.remove('hidden', 'bg-green-900', 'bg-red-900');
+  
+  if (isCorrect) {
+    puzzleResult.classList.add('bg-green-900');
+    puzzleResult.textContent = 'Correct! Well done!';
+    
+    fetch('/api/puzzle/solve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        puzzleId: currentPuzzle.id,
+        theme: currentPuzzle.themes ? currentPuzzle.themes[0] : null,
+        rating: currentPuzzle.rating,
+        solution: [playerMove],
+        timeTakenSeconds: timeTaken
+      })
+    }).then(() => loadPuzzleStats());
+    
+    setTimeout(() => loadNewPuzzle(), 1500);
+  } else {
+    puzzleResult.classList.add('bg-red-900');
+    const correctMove = getCorrectMoveFromSolution(currentPuzzle.solution, puzzleLegalMoves);
+    if (correctMove) {
+      const fromSquare = correctMove.substring(0, 2);
+      const toSquare = correctMove.substring(2, 4);
+      puzzleResult.textContent = `Incorrect! The correct move was ${fromSquare} to ${toSquare}`;
+      
+      // Show hint for next time
+      puzzleHintShown = true;
+      const hintEl = document.getElementById('puzzleHint');
+      hintEl.textContent = `Correct move: ${fromSquare} to ${toSquare}`;
+      hintEl.classList.remove('hidden');
+    } else {
+      puzzleResult.textContent = 'Incorrect! Could not find solution.';
+    }
+    
+    fetch('/api/puzzle/solve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        puzzleId: currentPuzzle.id,
+        theme: currentPuzzle.themes ? currentPuzzle.themes[0] : null,
+        rating: currentPuzzle.rating,
+        solution: [],
+        timeTakenSeconds: timeTaken
+      })
+    }).then(() => loadPuzzleStats());
+    
+    puzzleSelectedSquare = null;
+    renderPuzzleBoard(puzzleLegalMoves);
+  }
+}
+
+async function loadNewPuzzle() {
+  const theme = puzzleThemeSelect.value || null;
+  
+  puzzleContent.classList.add('hidden');
+  puzzleLoading.classList.remove('hidden');
+  puzzleResult.classList.add('hidden');
+  puzzleSelectedSquare = null;
+  puzzleHintShown = false;
+  
+  try {
+    const response = await fetch(`/api/puzzle/next${theme ? '?theme=' + theme : ''}`);
+    const data = await response.json();
+    
+    if (data.success) {
+      currentPuzzle = data.puzzle;
+      puzzleBoard = parsePuzzleFen(currentPuzzle.fen);
+      puzzleStartTime = Date.now();
+      puzzleSelectedSquare = null;
+      puzzleHintShown = false;
+      
+      // Get legal moves for this position
+      puzzleLegalMoves = [];
+      try {
+        const movesResponse = await fetch(`/api/legal-moves?fen=${encodeURIComponent(currentPuzzle.fen)}`);
+        const movesData = await movesResponse.json();
+        if (movesData.success) {
+          puzzleLegalMoves = movesData.moves;
+        }
+      } catch (e) {
+        console.error('Failed to get legal moves:', e);
+      }
+      
+      puzzleRatingEl.textContent = `Rating: ${currentPuzzle.rating}`;
+      puzzleThemeEl.textContent = currentPuzzle.themes ? currentPuzzle.themes.join(', ') : '';
+      
+      // Show side to move
+      const turnColor = currentPuzzle.fen.split(' ')[1] === 'w' ? 'White' : 'Black';
+      const sideIndicator = document.getElementById('puzzleSideIndicator');
+      sideIndicator.textContent = `${turnColor} to move`;
+      sideIndicator.className = turnColor === 'White' ? 'text-white font-bold text-lg mb-2' : 'text-black font-bold text-lg mb-2';
+      
+      // Reset hint
+      document.getElementById('puzzleHint').classList.add('hidden');
+      
+      puzzleLoading.classList.add('hidden');
+      puzzleContent.classList.remove('hidden');
+      
+      renderPuzzleBoard(puzzleLegalMoves);
+    }
+  } catch (error) {
+    console.error('Failed to load puzzle:', error);
+    puzzleLoading.innerHTML = '<p class="text-red-400">Failed to load puzzle. Please try again.</p>';
+  }
+}
+
+async function loadPuzzleStats() {
+  try {
+    const response = await fetch('/api/puzzle/stats');
+    const data = await response.json();
+    
+    if (data.success) {
+      document.getElementById('puzzleTotal').textContent = data.stats.total;
+      document.getElementById('puzzleAccuracy').textContent = data.stats.accuracy + '%';
+      document.getElementById('puzzleCorrect').textContent = data.stats.correct;
+    }
+  } catch (error) {
+    console.error('Failed to load puzzle stats:', error);
+  }
+}
+
+puzzleBtn.addEventListener('click', () => {
+  puzzleModal.classList.remove('hidden');
+  loadPuzzleStats();
+  loadNewPuzzle();
+});
+
+closePuzzleBtn.addEventListener('click', () => {
+  puzzleModal.classList.add('hidden');
+});
+
+loadPuzzleBtn.addEventListener('click', loadNewPuzzle);
+
+document.getElementById('puzzleHintBtn').addEventListener('click', () => {
+  if (currentPuzzle && currentPuzzle.solution && currentPuzzle.solution.length > 0 && !puzzleHintShown) {
+    puzzleHintShown = true;
+    const hintEl = document.getElementById('puzzleHint');
+    // Find the correct first move
+    const correctMove = getCorrectMoveFromSolution(currentPuzzle.solution, puzzleLegalMoves);
+    if (correctMove) {
+      const fromSquare = correctMove.substring(0, 2);
+      const toSquare = correctMove.substring(2, 4);
+      hintEl.textContent = `Hint: Move from ${fromSquare} to ${toSquare}`;
+    } else {
+      hintEl.textContent = 'Hint: No valid move found';
+    }
+    hintEl.classList.remove('hidden');
+  }
+});
+
+skipPuzzleBtn.addEventListener('click', () => {
+  if (currentPuzzle) {
+    fetch('/api/puzzle/solve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        puzzleId: currentPuzzle.id,
+        theme: currentPuzzle.themes ? currentPuzzle.themes[0] : null,
+        rating: currentPuzzle.rating,
+        solution: [],
+        timeTakenSeconds: 0
+      })
+    });
+  }
+  loadNewPuzzle();
+});
+
+const openingModal = document.getElementById('openingModal');
+const openingBtn = document.getElementById('openingBtn');
+const closeOpeningBtn = document.getElementById('closeOpeningBtn');
+const showOpeningBtn = document.getElementById('showOpeningBtn');
+const openingContent = document.getElementById('openingContent');
+const openingLoading = document.getElementById('openingLoading');
+const openingStats = document.getElementById('openingStats');
+const openingError = document.getElementById('openingError');
+
+openingBtn.addEventListener('click', () => {
+  console.log('Opening button clicked');
+  openingModal.classList.remove('hidden');
+  openingStats.classList.add('hidden');
+  openingError.classList.add('hidden');
+  showOpeningBtn.classList.remove('hidden');
+  openingContent.classList.remove('hidden');
+});
+
+closeOpeningBtn.addEventListener('click', () => {
+  openingModal.classList.add('hidden');
+});
+
+showOpeningBtn.addEventListener('click', async () => {
+  console.log('Show opening button clicked');
+  openingContent.classList.add('hidden');
+  openingLoading.classList.remove('hidden');
+  openingError.classList.add('hidden');
+  
+  try {
+    // Get current FEN from server
+    const stateResponse = await fetch('/api/state');
+    const state = await stateResponse.json();
+    console.log('State FEN:', state.fen);
+    
+    const response = await fetch(`/api/opening?fen=${encodeURIComponent(state.fen)}`);
+    const data = await response.json();
+    console.log('Opening data:', data);
+    
+    openingLoading.classList.add('hidden');
+    
+    if (data.success && data.opening) {
+      displayOpeningData(data.opening);
+      openingStats.classList.remove('hidden');
+      openingContent.classList.remove('hidden');
+    } else {
+      openingError.classList.remove('hidden');
+      openingContent.classList.remove('hidden');
+    }
+  } catch (error) {
+    console.error('Failed to load opening data:', error);
+    openingLoading.classList.add('hidden');
+    openingError.classList.remove('hidden');
+    openingContent.classList.remove('hidden');
+  }
+});
+
+function displayOpeningData(opening) {
+  if (opening.opening) {
+    document.getElementById('openingName').textContent = opening.opening.name || 'Unknown';
+    document.getElementById('openingEco').textContent = opening.opening.eco || '';
+  } else {
+    document.getElementById('openingName').textContent = 'Unknown Position';
+    document.getElementById('openingEco').textContent = '';
+  }
+  
+  document.getElementById('openingGames').textContent = `${opening.totalGames.toLocaleString()} games`;
+  
+  const whitePercent = opening.totalGames > 0 ? ((opening.whiteGames / opening.totalGames) * 100).toFixed(1) : 0;
+  const drawPercent = opening.totalGames > 0 ? ((opening.drawGames / opening.totalGames) * 100).toFixed(1) : 0;
+  const blackPercent = opening.totalGames > 0 ? ((opening.blackGames / opening.totalGames) * 100).toFixed(1) : 0;
+  
+  document.getElementById('whiteBar').style.width = whitePercent + '%';
+  document.getElementById('drawBar').style.width = drawPercent + '%';
+  document.getElementById('blackBar').style.width = blackPercent + '%';
+  
+  document.getElementById('whitePercent').textContent = `White ${whitePercent}%`;
+  document.getElementById('drawPercent').textContent = `Draw ${drawPercent}%`;
+  document.getElementById('blackPercent').textContent = `Black ${blackPercent}%`;
+  
+  const movesContainer = document.getElementById('openingMoves');
+  movesContainer.innerHTML = '';
+  
+  if (opening.moves && opening.moves.length > 0) {
+    opening.moves.forEach((moveData, index) => {
+      const moveEl = document.createElement('div');
+      moveEl.className = 'flex items-center justify-between bg-gray-700/50 rounded-lg p-2 cursor-pointer hover:bg-gray-700 transition-colors';
+      moveEl.innerHTML = `
+        <div class="flex items-center gap-2">
+          <span class="text-gray-400 w-6">${index + 1}.</span>
+          <span class="text-white font-mono">${moveData.move}</span>
+        </div>
+        <div class="flex gap-2 text-sm">
+          <span class="text-green-400">${moveData.whitePercent}%</span>
+          <span class="text-gray-400">${moveData.drawPercent}%</span>
+          <span class="text-red-400">${moveData.blackPercent}%</span>
+        </div>
+      `;
+      movesContainer.appendChild(moveEl);
+    });
+  } else {
+    movesContainer.innerHTML = '<p class="text-gray-400 text-center">No moves found for this position.</p>';
+  }
+}
+
 opponentAvatar.textContent = personalityAvatars[personalitySelect.value] || '♟️';
 
 loadStats();
