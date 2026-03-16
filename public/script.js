@@ -1044,6 +1044,11 @@ async function resetGame() {
       opponentComment.textContent = "Let's play! I'll crush you! ♟️";
       
       updateBoard(result.state);
+      
+      whiteTime = timeControl;
+      blackTime = timeControl;
+      gameStarted = false;
+      
       startTimerForCurrentTurn();
       updateEvaluation();
     }
