@@ -75,6 +75,16 @@ class GameLogic {
     }
   }
 
+  resign(playerColor) {
+    this.chess.reset();
+    return this.getState();
+  }
+
+  setDraw() {
+    this.chess.reset();
+    return this.getState();
+  }
+
   getRandomMove() {
     const moves = this.chess.moves();
     if (moves.length === 0) return null;

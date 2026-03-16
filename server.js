@@ -335,6 +335,121 @@ app.post('/api/undo', (req, res) => {
   }
 });
 
+app.post('/api/resign', (req, res) => {
+  try {
+    const { playerColor } = req.body;
+    const currentState = game.getState();
+    
+    let result = 'draw';
+    if (playerColor === 'white') {
+      result = 'Black wins!';
+    } else if (playerColor === 'black') {
+      result = 'White wins!';
+    }
+    
+    const finalState = {
+      ...currentState,
+      gameOver: true,
+      result: result,
+      resigned: true
+    };
+    
+    game.resign(playerColor);
+    
+    saveGameToDatabase(finalState);
+    
+    res.json({
+      success: true,
+      state: finalState,
+      result: result,
+      gameOver: true
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/offer-draw', (req, res) => {
+  try {
+    const { action, playerColor } = req.body;
+    const currentState = game.getState();
+    
+    if (action === 'offer') {
+      currentState.drawOffered = true;
+      currentState.drawOfferedBy = playerColor;
+      
+      return res.json({
+        success: true,
+        drawOffered: true,
+        offeredBy: playerColor,
+        state: currentState
+      });
+    } else if (action === 'accept') {
+      const finalState = {
+        ...currentState,
+        gameOver: true,
+        result: 'Draw!',
+        drawAccepted: true
+      };
+      
+      game.setDraw();
+      saveGameToDatabase(finalState);
+      
+      return res.json({
+        success: true,
+        gameOver: true,
+        result: 'Draw!',
+        state: finalState
+      });
+    } else if (action === 'decline') {
+      currentState.drawOffered = false;
+      currentState.drawOfferedBy = null;
+      
+      return res.json({
+        success: true,
+        drawOffered: false,
+        state: currentState
+      });
+    } else if (action === 'ai-respond') {
+      const acceptDraw = Math.random() < 0.3;
+      
+      if (acceptDraw) {
+        const finalState = {
+          ...currentState,
+          gameOver: true,
+          result: 'Draw!',
+          drawAccepted: true
+        };
+        
+        game.setDraw();
+        saveGameToDatabase(finalState);
+        
+        return res.json({
+          success: true,
+          aiAccepted: true,
+          gameOver: true,
+          result: 'Draw!',
+          state: finalState
+        });
+      } else {
+        currentState.drawOffered = false;
+        currentState.drawOfferedBy = null;
+        
+        return res.json({
+          success: true,
+          aiAccepted: false,
+          drawOffered: false,
+          state: currentState
+        });
+      }
+    }
+    
+    res.json({ success: false, error: 'Invalid action' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/api/hint', async (req, res) => {
   try {
     const fen = game.getState().fen;

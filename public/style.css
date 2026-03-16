@@ -501,6 +501,15 @@ body {
   background: linear-gradient(145deg, #fb923c, #f97316);
 }
 
+.btn-red {
+  background: linear-gradient(145deg, #ef4444, #dc2626);
+  color: white;
+}
+
+.btn-red:hover {
+  background: linear-gradient(145deg, #f87171, #ef4444);
+}
+
 .btn-teal {
   background: linear-gradient(145deg, #14b8a6, #0d9488);
   color: white;

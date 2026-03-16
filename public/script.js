@@ -1288,6 +1288,90 @@ themeSelect.addEventListener('change', (e) => changeTheme(e.target.value));
 difficultySelect.addEventListener('change', (e) => changeDifficulty(e.target.value));
 timeControlSelect.addEventListener('change', (e) => changeTimeControl(e.target.value));
 
+// Draw and Resign handlers
+const offerDrawBtn = document.getElementById('offerDrawBtn');
+const resignBtn = document.getElementById('resignBtn');
+
+let drawOffered = false;
+
+offerDrawBtn.addEventListener('click', async () => {
+  if (gameOver) return;
+  
+  if (drawOffered) {
+    alert('You have already offered a draw. Waiting for opponent response.');
+    return;
+  }
+  
+  try {
+    const response = await fetch('/api/offer-draw', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'offer', playerColor: 'white' })
+    });
+    
+    const data = await response.json();
+    
+    if (data.success) {
+      drawOffered = true;
+      offerDrawBtn.disabled = true;
+      offerDrawBtn.textContent = 'Draw Offered...';
+      
+      // AI responds to draw offer
+      const aiResponse = await fetch('/api/offer-draw', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'ai-respond', playerColor: 'white' })
+      });
+      
+      const aiData = await aiResponse.json();
+      
+      drawOffered = false;
+      offerDrawBtn.disabled = false;
+      offerDrawBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg> Offer Draw`;
+      
+      if (aiData.aiAccepted) {
+        gameOver = true;
+        document.getElementById('gameStatus').textContent = 'Game Over - Draw!';
+        showGameOverModal('Draw!', 'The game ended in a draw.');
+        saveGameToDatabase(aiData.state);
+      } else {
+        alert('AI declined the draw offer. The game continues.');
+      }
+    }
+  } catch (error) {
+    console.error('Draw offer error:', error);
+    alert('Failed to offer draw');
+  }
+});
+
+resignBtn.addEventListener('click', async () => {
+  if (gameOver) return;
+  
+  const confirmed = confirm('Are you sure you want to resign? You will lose the game.');
+  
+  if (!confirmed) return;
+  
+  try {
+    const response = await fetch('/api/resign', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playerColor: 'white' })
+    });
+    
+    const data = await response.json();
+    
+    if (data.success) {
+      gameOver = true;
+      document.getElementById('gameStatus').textContent = 'Game Over - You Resigned';
+      showGameOverModal('You Resigned', data.result);
+      saveGameToDatabase(data.state);
+    }
+  } catch (error) {
+    console.error('Resign error:', error);
+    alert('Failed to resign');
+  }
+});
+
 const modeAiBtn = document.getElementById('modeAiBtn');
 const modePvpBtn = document.getElementById('modePvpBtn');
 const pvpColorSelect = document.getElementById('pvpColorSelect');
