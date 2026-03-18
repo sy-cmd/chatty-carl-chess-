@@ -22,6 +22,8 @@ const openingExplorer = openingExplorerModule.instance;
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+const gameStore = new Map();
+
 app.use(session({
   secret: process.env.SESSION_SECRET || 'chess-app-secret-key-change-in-production',
   resave: false,
@@ -37,16 +39,22 @@ const difficulty = 10;
 const stockfish = new StockfishPlayer(difficulty);
 
 function getSessionGame(req) {
-  if (!req.session.game) {
+  if (!req.session.id) {
+    throw new Error('Session ID not available');
+  }
+  
+  if (!gameStore.has(req.session.id)) {
     const game = new GameLogic();
     game.setStockfish(stockfish);
-    req.session.game = game;
-    req.session.gameStartTime = null;
-    req.session.currentGameMoves = [];
-    req.session.gameMode = 'ai';
-    req.session.playerColor = 'white';
+    gameStore.set(req.session.id, game);
   }
-  return req.session.game;
+  return gameStore.get(req.session.id);
+}
+
+function clearSessionGame(req) {
+  if (req.session && req.session.id) {
+    gameStore.delete(req.session.id);
+  }
 }
 
 function getSessionState(req) {
@@ -532,7 +540,9 @@ app.post('/api/reset', (req, res) => {
     const { game } = getSessionState(req);
     req.session.gameStartTime = Date.now();
     req.session.currentGameMoves = [];
-    const state = game.reset();
+    clearSessionGame(req);
+    const newGame = getSessionGame(req);
+    const state = newGame.reset();
     res.json({ success: true, state });
   } catch (error) {
     res.status(500).json({ error: error.message });

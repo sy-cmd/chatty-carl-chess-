@@ -1352,9 +1352,7 @@ offerDrawBtn.addEventListener('click', async () => {
 resignBtn.addEventListener('click', async () => {
   if (gameOver) return;
   
-  const confirmed = confirm('Are you sure you want to resign? You will lose the game.');
-  
-  if (!confirmed) return;
+  if (!confirm('Are you sure you want to resign?')) return;
   
   try {
     const response = await fetch('/api/resign', {
@@ -1367,15 +1365,18 @@ resignBtn.addEventListener('click', async () => {
     
     if (data.success) {
       gameOver = true;
-      document.getElementById('gameStatus').textContent = 'Game Over - You Resigned';
-      showGameOverModal('You Resigned', data.result);
-      saveGameToDatabase(data.state);
+      gameOverDisplay.textContent = data.result;
+      gameOverDisplay.classList.remove('hidden');
+      stopTimer();
+      playSound('gameOver');
+      opponentComment.textContent = "You resigned. Better luck next time!";
+      loadStats();
     }
   } catch (error) {
     console.error('Resign error:', error);
-    alert('Failed to resign');
   }
 });
+
 
 const modeAiBtn = document.getElementById('modeAiBtn');
 const modePvpBtn = document.getElementById('modePvpBtn');
