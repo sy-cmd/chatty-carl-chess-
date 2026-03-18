@@ -163,7 +163,7 @@ docker run -p 3000:3000 \
 
 ## GitOps Deployment
 
-This app is deployed using a pull-based GitOps pipeline. The deployment manifests live in a separate repo: [chess-app-k8s](https://github.com/<your-username>/chess-app-k8s)
+This app is deployed using a pull-based GitOps pipeline. The deployment manifests live in a separate repo: [Curly-deployment](https://github.com/sy-cmd/homelab/blob/main/GitOps/ArgoCd/projects/carly-deployment/charty-carl.yaml)
 
 ### How it works
 
