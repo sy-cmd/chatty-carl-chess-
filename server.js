@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
+const session = require('express-session');
 const GameLogic = require('./src/gameLogic');
 const StockfishPlayer = require('./src/stockfishPlayer');
 const { initGroq, generateCommentary, generateMoveExplanation } = require('./src/llmPlayer');
@@ -21,20 +22,45 @@ const openingExplorer = openingExplorerModule.instance;
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-let difficulty = 10;
-const game = new GameLogic();
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'chess-app-secret-key-change-in-production',
+  resave: false,
+  saveUninitialized: true,
+  cookie: { 
+    maxAge: 24 * 60 * 60 * 1000,
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production'
+  }
+}));
+
+const difficulty = 10;
 const stockfish = new StockfishPlayer(difficulty);
 
-let gameStartTime = null;
-let currentGameMoves = [];
+function getSessionGame(req) {
+  if (!req.session.game) {
+    const game = new GameLogic();
+    game.setStockfish(stockfish);
+    req.session.game = game;
+    req.session.gameStartTime = null;
+    req.session.currentGameMoves = [];
+    req.session.gameMode = 'ai';
+    req.session.playerColor = 'white';
+  }
+  return req.session.game;
+}
 
-let gameMode = 'ai';
-let playerColor = 'white';
-
-game.setStockfish(stockfish);
+function getSessionState(req) {
+  return {
+    game: getSessionGame(req),
+    gameStartTime: req.session.gameStartTime,
+    currentGameMoves: req.session.currentGameMoves || [],
+    gameMode: req.session.gameMode || 'ai',
+    playerColor: req.session.playerColor || 'white'
+  };
+}
 
 // Save game to database
-function saveGameToDatabase(state) {
+function saveGameToDatabase(state, session) {
   if (!state || !state.history || state.history.length === 0) {
     return;
   }
@@ -55,12 +81,16 @@ function saveGameToDatabase(state) {
       resultStr = 'draw';
     }
     
+    const gameStartTime = session ? session.gameStartTime : null;
+    const playerColor = session ? session.playerColor : 'white';
+    const difficultyLevel = 10;
+    
     const durationSeconds = gameStartTime ? Math.floor((Date.now() - gameStartTime) / 1000) : 0;
     
     Database.saveGame({
       playerColor: playerColor,
       opponent: 'Stockfish',
-      difficulty: difficulty,
+      difficulty: difficultyLevel,
       result: resultStr,
       pgn: pgn,
       analysis: null,
@@ -97,6 +127,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/api/state', (req, res) => {
   try {
+    const { game } = getSessionState(req);
     const state = game.getState();
     res.json(state);
   } catch (error) {
@@ -124,9 +155,9 @@ app.get('/api/legal-moves', (req, res) => {
 app.post('/api/move', async (req, res) => {
   try {
     const { from, to, promotion, difficulty: diff, explain } = req.body;
+    const { game, gameStartTime, currentGameMoves } = getSessionState(req);
     
     if (diff) {
-      difficulty = diff;
       await stockfish.setDifficulty(diff);
     }
     
@@ -144,10 +175,10 @@ app.post('/api/move', async (req, res) => {
       });
     }
 
-    if (!gameStartTime) {
-      gameStartTime = Date.now();
+    if (!req.session.gameStartTime) {
+      req.session.gameStartTime = Date.now();
     }
-    currentGameMoves.push({ from, to, color: 'white', timestamp: Date.now() });
+    req.session.currentGameMoves.push({ from, to, color: 'white', timestamp: Date.now() });
 
     const stateAfterPlayerMove = game.getState();
     const playerMoveNotation = `${from}-${to}`;
@@ -170,7 +201,7 @@ app.post('/api/move', async (req, res) => {
         stateAfterPlayerMove.result
       );
       
-      saveGameToDatabase(stateAfterPlayerMove);
+      saveGameToDatabase(stateAfterPlayerMove, req.session);
       
       return res.json({
         success: true,
@@ -198,9 +229,9 @@ app.post('/api/move', async (req, res) => {
 app.post('/api/ai-move', async (req, res) => {
   try {
     const { difficulty: diff } = req.body;
+    const { game, currentGameMoves } = getSessionState(req);
     
     if (diff) {
-      difficulty = diff;
       await stockfish.setDifficulty(diff);
     }
     
@@ -242,7 +273,7 @@ app.post('/api/ai-move', async (req, res) => {
         
         if (stockfishMoveResult && stockfishMoveResult.success) {
           stockfishMove = { from: sfFrom, to: sfTo, color: 'black', timestamp: Date.now() };
-          currentGameMoves.push(stockfishMove);
+          req.session.currentGameMoves.push(stockfishMove);
         }
       }
     } catch (sfError) {
@@ -269,8 +300,8 @@ app.post('/api/ai-move', async (req, res) => {
     const stockfishMoveNotation = stockfishMoveResult.move ? 
       `${stockfishMoveResult.move.from}-${stockfishMoveResult.move.to}` : 'my move';
     
-    const playerMoveNotation = currentGameMoves.length >= 2 
-      ? `${currentGameMoves[currentGameMoves.length - 2].from}-${currentGameMoves[currentGameMoves.length - 2].to}`
+    const playerMoveNotation = req.session.currentGameMoves.length >= 2 
+      ? `${req.session.currentGameMoves[req.session.currentGameMoves.length - 2].from}-${req.session.currentGameMoves[req.session.currentGameMoves.length - 2].to}`
       : 'your move';
 
     let llmComment = await generateCommentary(
@@ -294,7 +325,7 @@ app.post('/api/ai-move', async (req, res) => {
     }
 
     if (finalState.gameOver) {
-      saveGameToDatabase(finalState);
+      saveGameToDatabase(finalState, req.session);
     }
 
     res.json({
@@ -324,6 +355,7 @@ async function getMoveEvaluation(fen) {
 
 app.post('/api/undo', (req, res) => {
   try {
+    const { game } = getSessionState(req);
     const result = game.undoLastTwoMoves();
     if (result.success) {
       res.json({ success: true, state: result.state });
@@ -338,6 +370,7 @@ app.post('/api/undo', (req, res) => {
 app.post('/api/resign', (req, res) => {
   try {
     const { playerColor } = req.body;
+    const { game } = getSessionState(req);
     const currentState = game.getState();
     
     let result = 'draw';
@@ -356,7 +389,7 @@ app.post('/api/resign', (req, res) => {
     
     game.resign(playerColor);
     
-    saveGameToDatabase(finalState);
+    saveGameToDatabase(finalState, req.session);
     
     res.json({
       success: true,
@@ -372,6 +405,7 @@ app.post('/api/resign', (req, res) => {
 app.post('/api/offer-draw', (req, res) => {
   try {
     const { action, playerColor } = req.body;
+    const { game } = getSessionState(req);
     const currentState = game.getState();
     
     if (action === 'offer') {
@@ -393,7 +427,7 @@ app.post('/api/offer-draw', (req, res) => {
       };
       
       game.setDraw();
-      saveGameToDatabase(finalState);
+      saveGameToDatabase(finalState, req.session);
       
       return res.json({
         success: true,
@@ -422,7 +456,7 @@ app.post('/api/offer-draw', (req, res) => {
         };
         
         game.setDraw();
-        saveGameToDatabase(finalState);
+        saveGameToDatabase(finalState, req.session);
         
         return res.json({
           success: true,
@@ -452,6 +486,7 @@ app.post('/api/offer-draw', (req, res) => {
 
 app.post('/api/hint', async (req, res) => {
   try {
+    const { game } = getSessionState(req);
     const fen = game.getState().fen;
     const bestMove = await stockfish.getBestMove(fen);
     
@@ -474,9 +509,8 @@ app.post('/api/hint', async (req, res) => {
 app.post('/api/difficulty', async (req, res) => {
   try {
     const { difficulty: diff } = req.body;
-    difficulty = diff || 10;
-    await stockfish.setDifficulty(difficulty);
-    res.json({ success: true, difficulty });
+    await stockfish.setDifficulty(diff || 10);
+    res.json({ success: true, difficulty: diff || 10 });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -484,6 +518,7 @@ app.post('/api/difficulty', async (req, res) => {
 
 app.post('/api/evaluate', async (req, res) => {
   try {
+    const { game } = getSessionState(req);
     const fen = game.getState().fen;
     const evaluation = await stockfish.getEvaluation(fen);
     res.json({ score: evaluation });
@@ -494,8 +529,9 @@ app.post('/api/evaluate', async (req, res) => {
 
 app.post('/api/reset', (req, res) => {
   try {
-    gameStartTime = Date.now();
-    currentGameMoves = [];
+    const { game } = getSessionState(req);
+    req.session.gameStartTime = Date.now();
+    req.session.currentGameMoves = [];
     const state = game.reset();
     res.json({ success: true, state });
   } catch (error) {
@@ -506,6 +542,7 @@ app.post('/api/reset', (req, res) => {
 app.post('/api/personality', (req, res) => {
   try {
     const { personality } = req.body;
+    const { game } = getSessionState(req);
     game.setPersonality(personality);
     res.json({ 
       success: true, 
@@ -748,22 +785,24 @@ async function analyzeGame(moves, difficulty) {
 app.post('/api/mode', (req, res) => {
   try {
     const { mode, color } = req.body;
-    gameMode = mode || 'ai';
+    const { game } = getSessionState(req);
+    
+    req.session.gameMode = mode || 'ai';
     
     if (color) {
-      playerColor = color;
+      req.session.playerColor = color;
     }
     
-    if (gameMode === 'pvp') {
+    if (req.session.gameMode === 'pvp') {
       game.reset();
-      currentGameMoves = [];
-      gameStartTime = null;
+      req.session.currentGameMoves = [];
+      req.session.gameStartTime = null;
     }
     
     res.json({ 
       success: true, 
-      mode: gameMode,
-      playerColor: playerColor
+      mode: req.session.gameMode,
+      playerColor: req.session.playerColor
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -771,6 +810,7 @@ app.post('/api/mode', (req, res) => {
 });
 
 app.get('/api/mode', (req, res) => {
+  const { gameMode, playerColor } = getSessionState(req);
   res.json({ mode: gameMode, playerColor: playerColor });
 });
 
@@ -838,6 +878,7 @@ app.post('/api/tts-cache/clear', (req, res) => {
 app.post('/api/pvp-move', async (req, res) => {
   try {
     const { from, to, promotion } = req.body;
+    const { game } = getSessionState(req);
     
     if (!from || !to) {
       return res.status(400).json({ error: 'Missing from or to square' });
@@ -853,15 +894,15 @@ app.post('/api/pvp-move', async (req, res) => {
       });
     }
 
-    if (!gameStartTime) {
-      gameStartTime = Date.now();
+    if (!req.session.gameStartTime) {
+      req.session.gameStartTime = Date.now();
     }
-    currentGameMoves.push({ from, to, color: game.getState().turn, timestamp: Date.now() });
+    req.session.currentGameMoves.push({ from, to, color: game.getState().turn, timestamp: Date.now() });
 
     const stateAfterPlayerMove = game.getState();
     
     if (stateAfterPlayerMove.gameOver) {
-      savePvpGame(stateAfterPlayerMove);
+      savePvpGame(stateAfterPlayerMove, req.session);
       
       return res.json({
         success: true,
@@ -883,10 +924,10 @@ app.post('/api/pvp-move', async (req, res) => {
   }
 });
 
-function savePvpGame(finalState) {
-  if (!gameStartTime || currentGameMoves.length === 0) return;
+function savePvpGame(finalState, session) {
+  if (!session.gameStartTime || !session.currentGameMoves || session.currentGameMoves.length === 0) return;
   
-  const durationSeconds = Math.floor((Date.now() - gameStartTime) / 1000);
+  const durationSeconds = Math.floor((Date.now() - session.gameStartTime) / 1000);
   
   let resultStr = 'draw';
   if (finalState.result) {
@@ -894,14 +935,14 @@ function savePvpGame(finalState) {
     else if (finalState.result.includes('Black wins')) resultStr = 'black_win';
   }
   
-  const pgn = currentGameMoves.map((m, i) => {
+  const pgn = session.currentGameMoves.map((m, i) => {
     const moveNum = Math.floor(i / 2) + 1;
     return i % 2 === 0 ? `${moveNum}. ${m.from}-${m.to}` : `${m.from}-${m.to}`;
   }).join(' ');
   
   try {
     Database.saveGame({
-      playerColor: playerColor,
+      playerColor: session.playerColor || 'white',
       opponent: 'Local PvP',
       difficulty: 0,
       result: resultStr,
