@@ -8,6 +8,7 @@ A full-stack AI-powered chess platform featuring a Stockfish engine opponent, re
 ![K3s](https://img.shields.io/badge/Deployed-K3s%20%2B%20ArgoCD-orange)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
+![screenshoot](/img/Screenshot_20260319_161717.png)
 ---
 
 ## Overview
@@ -138,28 +139,34 @@ cp .env.example .env
 
 ```env
 GROQ_API_KEY=your_groq_api_key
-OPENAI_API_KEY=your_openai_api_key
-PORT=3000
+PORT=5000
 ```
 
 ```bash
 npm start
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+Open [http://localhost:5000](http://localhost:5000) in your browser.
 
-### Run with Docker
+### Run with Docker (Pre-built with API Keys)
 
-```bash
-docker pull <your-dockerhub-username>/chess-app:latest
 
-docker run -p 3000:3000 \
-  -e GROQ_API_KEY=your_key \
-  -e OPENAI_API_KEY=your_key \
-  <your-dockerhub-username>/chess-app:latest
+```
+# Pull the pre-built image with API keys already configured
+docker pull syfalnaga/chess-app:latest
+# Run the container
+docker run -d \
+  --name chatty-carl \
+  -p 5000:5000 \
+  syfalnga/chess-app:latest
+
+# open in your browser
+Open [http://localhost:5000](http://localhost:5000) in your browser.
+
+# View logs
+docker logs -f chatty-carl
 ```
 
----
 
 ## GitOps Deployment
 
@@ -185,23 +192,33 @@ kubectl apply -f https://raw.githubusercontent.com/<your-username>/chess-app-k8s
 
 ```
 chatty-carl-chess/
-├── server.js                  # Express server & API endpoints
-├── dockerfile                 # Container definition
-├── src/
-│   ├── gameLogic.js           # Chess game logic wrapper
-│   ├── stockfishPlayer.js     # Stockfish engine interface
-│   ├── llmPlayer.js           # Groq API integration
-│   └── prompts.js             # AI personality definitions
-├── public/
-│   ├── index.html             # Main HTML
-│   ├── script.js              # Frontend JavaScript
-│   ├── style.css              # Styling & themes
+├── bin/                        # Stockfish chess engine
+│   ├── stockfish               # Binary executable
+│   └── stockfish.tar.bz2       # Packaged distribution
+├── src/                        # Backend source code
+│   ├── database.js             # SQLite database operations
+│   ├── gameLogic.js            # Chess game logic wrapper
+│   ├── llmPlayer.js            # Groq API integration
+│   ├── openingExplorer.js      # Lichess opening data
+│   ├── prompts.js             # AI personality definitions
+│   ├── puzzleService.js        # Chess puzzle integration
+│   ├── stockfishPlayer.js      # Stockfish engine interface
+│   └── ttsService.js           # Text-to-speech service
+├── public/                     # Frontend assets
+│   ├── index.html              # Main HTML
+│   ├── script.js               # Frontend JavaScript
+│   ├── style.css               # Styling & themes
 │   └── pieces/                # SVG chess pieces
 ├── .github/
 │   └── workflows/
-│       └── docker-build-push.yml  # CI pipeline
-├── documentation.md           # Full technical docs
-└── package.json
+│       └── docker-build-push.yml # CI/CD pipeline
+├── documentation.md            # Full technical documentation
+├── ecosystem.config.js         # PM2 process manager config
+├── dockerfile                  # Container definition
+├── server.js                   # Express server entry point
+├── package.json                # Dependencies
+├── .env.example                # Environment variables template
+└── README.md                   # This file
 ```
 
 ---
@@ -232,4 +249,4 @@ chatty-carl-chess/
 
 ## License
 
-MIT — feel free to use for your own portfolio.
+MIT 
