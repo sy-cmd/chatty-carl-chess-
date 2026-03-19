@@ -20,17 +20,28 @@ class StockfishPlayer {
     }
   }
 
-  async getBestMove(fen, timeoutMs = 10000) {
+  async getBestMove(fen, timeoutMs = 15000) {
     if (!this.engine || !this.isReady) {
       throw new Error('Stockfish not initialized');
     }
 
     try {
       await this.engine.position(fen);
-      const result = await Promise.race([
-        this.engine.go({ depth: 15 }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Stockfish timeout')), timeoutMs))
-      ]);
+      
+      // First try to find a forced mate
+      let result = await Promise.race([
+        this.engine.go({ depth: 1, mate: 1 }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Stockfish timeout')), 3000))
+      ]).catch(() => null);
+      
+      // If no mate found or timeout, use regular depth search with higher depth
+      if (!result || !result.bestmove) {
+        result = await Promise.race([
+          this.engine.go({ depth: 20 }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Stockfish timeout')), timeoutMs))
+        ]);
+      }
+      
       return result.bestmove;
     } catch (error) {
       console.error('Stockfish getBestMove error:', error);
@@ -46,7 +57,7 @@ class StockfishPlayer {
     }
   }
 
-  async getEvaluation(fen, timeoutMs = 8000) {
+  async getEvaluation(fen, timeoutMs = 10000) {
     if (!this.engine || !this.isReady) {
       return 0;
     }
@@ -54,7 +65,7 @@ class StockfishPlayer {
     try {
       await this.engine.position(fen);
       const result = await Promise.race([
-        this.engine.go({ depth: 10 }),
+        this.engine.go({ depth: 15 }),
         new Promise((_, reject) => setTimeout(() => reject(new Error('Stockfish evaluation timeout')), timeoutMs))
       ]);
       

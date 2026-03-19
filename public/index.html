@@ -35,12 +35,12 @@
       <div class="card">
         <div class="flex flex-wrap gap-2 items-center justify-between mb-3">
           <div class="flex gap-2">
-            <button id="newGameBtn" class="btn btn-green">
+            <!-- <button id="newGameBtn" class="btn btn-green">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
               </svg>
               New
-            </button>
+            </button> -->
             <button id="flipBoardBtn" class="btn btn-blue">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -53,6 +53,18 @@
               </svg>
               Undo
             </button>
+            <!-- <button id="offerDrawBtn" class="btn btn-orange">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+              </svg>
+              Offer Draw
+            </button>
+            <button id="resignBtn" class="btn btn-red">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+              Resign
+            </button> -->
           </div>
           <div class="flex gap-2">
             <button id="hintBtn" class="btn btn-purple">
@@ -61,11 +73,60 @@
               </svg>
               Hint
             </button>
+            <button id="puzzleBtn" class="btn btn-orange">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+              </svg>
+              Puzzles
+            </button>
+            <button id="openingBtn" class="btn btn-teal" onclick="alert('Openings button clicked!'); document.getElementById('openingModal').classList.remove('hidden');">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+              </svg>
+              Openings
+            </button>
           </div>
         </div>
 
         <div class="flex justify-center w-full">
           <div id="board" class="board"></div>
+        </div>
+        
+        <!-- resing button -->
+        <div class="flex justify-center gap-3 " >
+
+           <button id="newGameBtn" class="btn btn-green">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+              </svg>
+              New
+            </button>
+
+          <button id="offerDrawBtn" class="btn btn-orange">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+              </svg>
+              Offer Draw
+            </button>
+
+            <button id="resignBtn" class="btn btn-red">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+              Resign
+            </button>
+
+        </div>
+        <!-- Captured Pieces -->
+        <div class="flex justify-center gap-8 mt-2">
+          <div class="flex items-center gap-2">
+            <span class="text-gray-400 text-lg">♔</span>
+            <div id="capturedWhite" class="flex gap-1 min-h-6"></div>
+          </div>
+          <div class="flex items-center gap-2">
+            <div id="capturedBlack" class="flex gap-1 min-h-6"></div>
+            <span class="text-gray-400 text-lg">♚</span>
+          </div>
         </div>
         
         <div class="mt-4 space-y-3">
@@ -374,6 +435,153 @@
         <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
         <p class="text-gray-400 mt-2">Analyzing game...</p>
       </div>
+    </div>
+  </div>
+
+  <div id="puzzleModal" class="fixed inset-0 modal-overlay flex items-center justify-center hidden z-50">
+    <div class="bg-gray-800 rounded-xl p-6 max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-xl font-bold text-white">Chess Puzzles</h2>
+        <button id="closePuzzleBtn" class="text-gray-400 hover:text-white text-2xl">&times;</button>
+      </div>
+      
+      <div class="mb-4">
+        <label class="text-gray-400 text-sm">Theme:</label>
+        <select id="puzzleThemeSelect" class="bg-gray-700 text-white px-3 py-2 rounded-lg w-full mt-1">
+          <option value="">Random</option>
+          <option value="mate">Checkmate</option>
+          <option value="mateIn1">Mate in 1</option>
+          <option value="mateIn2">Mate in 2</option>
+          <option value="tactics">Tactics</option>
+          <option value="sacrifice">Sacrifices</option>
+          <option value="endgame">Endgame</option>
+        </select>
+      </div>
+      
+      <div id="puzzleContent" class="hidden">
+        <div class="flex justify-between items-center mb-2">
+          <span id="puzzleRating" class="text-yellow-400 font-bold"></span>
+          <span id="puzzleTheme" class="text-gray-400 text-sm"></span>
+        </div>
+        
+        <div id="puzzleSideIndicator" class="text-center text-white font-bold text-lg mb-2"></div>
+        
+        <div id="puzzleBoard" class="board theme-dark with-coordinates mb-4"></div>
+        
+        <div id="puzzleHint" class="hidden text-center text-yellow-400 font-bold mb-2 py-2 bg-yellow-900/30 rounded-lg"></div>
+        
+        <div class="flex gap-2 mb-4">
+          <button id="puzzleHintBtn" class="btn btn-purple flex-1">Hint</button>
+          <button id="loadPuzzleBtn" class="btn btn-blue flex-1">New Puzzle</button>
+          <button id="skipPuzzleBtn" class="btn btn-gray flex-1">Skip</button>
+        </div>
+        
+        <div id="puzzleResult" class="hidden text-center py-2 rounded-lg mb-4"></div>
+      </div>
+      
+      <div id="puzzleLoading" class="hidden py-8 text-center">
+        <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+        <p class="text-gray-400 mt-2">Loading puzzle...</p>
+      </div>
+      
+      <div class="border-t border-gray-700 pt-4 mt-4">
+        <h3 class="font-bold text-white mb-2">Your Stats</h3>
+        <div class="grid grid-cols-3 gap-4 text-center">
+          <div class="bg-gray-700 rounded-lg p-2">
+            <div id="puzzleTotal" class="text-white font-bold text-lg">0</div>
+            <div class="text-gray-400 text-xs">Attempted</div>
+          </div>
+          <div class="bg-gray-700 rounded-lg p-2">
+            <div id="puzzleAccuracy" class="text-green-400 font-bold text-lg">0%</div>
+            <div class="text-gray-400 text-xs">Accuracy</div>
+          </div>
+          <div class="bg-gray-700 rounded-lg p-2">
+            <div id="puzzleCorrect" class="text-blue-400 font-bold text-lg">0</div>
+            <div class="text-gray-400 text-xs">Solved</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="openingModal" class="fixed inset-0 modal-overlay flex items-center justify-center hidden z-50">
+    <div class="bg-gray-800 rounded-xl p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-xl font-bold text-white">Opening Explorer</h2>
+        <button id="closeOpeningBtn" class="text-gray-400 hover:text-white text-2xl">&times;</button>
+      </div>
+      
+      <div id="openingContent">
+        <p class="text-gray-400 text-sm mb-4">Click "Show Opening" to see statistics for the current position.</p>
+        
+        <button id="showOpeningBtn" class="btn btn-teal w-full mb-4">Show Opening Stats</button>
+        
+        <div id="openingStats" class="hidden">
+          <div class="flex justify-between items-center mb-4">
+            <div>
+              <span id="openingName" class="text-white font-bold"></span>
+              <span id="openingEco" class="text-gray-400 text-sm ml-2"></span>
+            </div>
+            <span id="openingGames" class="text-gray-400 text-sm"></span>
+          </div>
+          
+          <div class="mb-4">
+            <div class="flex h-4 rounded-lg overflow-hidden">
+              <div id="whiteBar" class="bg-green-500 transition-all duration-300"></div>
+              <div id="drawBar" class="bg-gray-500 transition-all duration-300"></div>
+              <div id="blackBar" class="bg-red-500 transition-all duration-300"></div>
+            </div>
+            <div class="flex justify-between text-xs mt-1">
+              <span id="whitePercent" class="text-green-400"></span>
+              <span id="drawPercent" class="text-gray-400"></span>
+              <span id="blackPercent" class="text-red-400"></span>
+            </div>
+          </div>
+          
+          <div class="space-y-2" id="openingMoves"></div>
+        </div>
+      </div>
+      
+      <div id="openingLoading" class="hidden py-8 text-center">
+        <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-teal-500"></div>
+        <p class="text-gray-400 mt-2">Loading opening data...</p>
+      </div>
+      
+      <div id="openingError" class="hidden text-center py-4">
+        <p class="text-red-400">Failed to load opening data. Please try again.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Replay Modal -->
+  <div id="replayModal" class="fixed inset-0 modal-overlay flex items-center justify-center hidden z-50">
+    <div class="modal p-6 max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-xl font-bold text-white">Game Replay</h3>
+        <button id="closeReplayBtn" class="text-gray-400 hover:text-white text-2xl">&times;</button>
+      </div>
+      
+      <div id="replayInfo" class="mb-4 text-center">
+        <div class="text-white font-bold text-lg" id="replayOpponent"></div>
+        <div class="text-gray-400 text-sm" id="replayDate"></div>
+        <div class="text-yellow-400" id="replayResult"></div>
+      </div>
+      
+      <div id="replayBoard" class="board theme-dark with-coordinates mb-4 mx-auto"></div>
+      
+      <div class="mb-4">
+        <input type="range" id="replaySlider" min="0" max="0" value="0" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+      </div>
+      
+      <div class="flex items-center justify-between mb-4">
+        <button id="replayStartBtn" class="btn btn-gray flex-1 mr-2">⏮ Start</button>
+        <button id="replayPrevBtn" class="btn btn-gray flex-1 mr-2">◀ Prev</button>
+        <span id="replayMoveInfo" class="text-white font-bold px-4">Move 0</span>
+        <button id="replayNextBtn" class="btn btn-gray flex-1 ml-2">Next ▶</button>
+        <button id="replayEndBtn" class="btn btn-gray flex-1 ml-2">⏭ End</button>
+      </div>
+      
+      <div id="replayLastMove" class="text-center text-yellow-400 font-bold text-lg h-8"></div>
     </div>
   </div>
 

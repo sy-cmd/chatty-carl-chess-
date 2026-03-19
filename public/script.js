@@ -148,6 +148,35 @@ let currentPersonality = 'sassy';
 let usePuterTTS = true;
 let currentAudio = null;
 
+// Puter.js connection management
+let puterFailureCount = 0;
+let puterCircuitOpen = false;
+let puterLastFailureTime = 0;
+const PUTER_CIRCUIT_THRESHOLD = 3;
+const PUTER_CIRCUIT_TIMEOUT = 30000; // 30 seconds
+const PUTER_RETRY_DELAYS = [1000, 2000, 4000]; // Exponential backoff
+
+// Monitor Puter.js connection state
+if (typeof puter !== 'undefined' && puter.socket) {
+  puter.socket.on('connect', () => {
+    puterFailureCount = 0;
+    puterCircuitOpen = false;
+    console.log('✅ Puter.js connected');
+  });
+  
+  puter.socket.on('disconnect', () => {
+    console.log('⚠️ Puter.js disconnected');
+  });
+  
+  puter.socket.on('reconnect_attempt', () => {
+    console.log('🔄 Puter.js reconnecting...');
+  });
+  
+  puter.socket.on('connect_error', (error) => {
+    console.warn('⚠️ Puter.js connection error:', error.message);
+  });
+}
+
 function loadVoices() {
   availableVoices = window.speechSynthesis.getVoices();
   voicesLoaded = availableVoices.length > 0;
@@ -327,16 +356,20 @@ const PUTER_VOICES = {
   shimmer: 'Salli'
 };
 
-async function speakWithPuter(text, priority = false) {
+async function speakWithPuter(text, priority = false, retryCount = 0) {
+  // Check circuit breaker
+  if (puterCircuitOpen) {
+    console.warn('⚠️ Puter circuit breaker open, using browser fallback');
+    return speakWithWebSpeech(text, priority);
+  }
+  
   try {
     const autoVoice = document.getElementById('autoVoice')?.checked;
     let voiceName;
     
     if (autoVoice) {
-      // Use personality-based voice
       voiceName = PUTER_VOICES[currentPersonality] || 'Joanna';
     } else {
-      // Use manually selected voice
       voiceName = selectedVoiceId || 'Joanna';
     }
     
@@ -352,6 +385,10 @@ async function speakWithPuter(text, priority = false) {
     if (!audio) {
       throw new Error('No audio returned');
     }
+    
+    // Success - reset failure count
+    puterFailureCount = 0;
+    puterCircuitOpen = false;
     
     // Stop any existing audio
     if (currentAudio) {
@@ -371,23 +408,55 @@ async function speakWithPuter(text, priority = false) {
     
     audio.onerror = (e) => {
       if (e.error !== 'abort') {
-        console.error('Puter audio error:', e);
+        console.warn('⚠️ Puter audio playback error:', e.message || e);
       }
     };
     
-    // Play audio and catch abort errors silently
     try {
       await audio.play();
     } catch (playError) {
-      // Ignore abort errors - they happen when audio is interrupted
       if (playError.name !== 'AbortError') {
-        console.error('Puter play error:', playError);
+        console.warn('⚠️ Puter play error:', playError.message || playError);
       }
     }
   } catch (error) {
-    if (error.name !== 'AbortError') {
-      console.error('Puter TTS error:', error);
+    if (error.name === 'AbortError') {
+      return; // User interrupted, don't retry
     }
+    
+    puterFailureCount++;
+    puterLastFailureTime = Date.now();
+    
+    // Log the failure
+    if (retryCount < PUTER_RETRY_DELAYS.length) {
+      console.warn(`⚠️ Puter TTS failed (attempt ${retryCount + 1}/${PUTER_RETRY_DELAYS.length + 1}): ${error.message || error}. Retrying...`);
+    } else {
+      console.error(`❌ Puter TTS failed after ${PUTER_RETRY_DELAYS.length + 1} attempts: ${error.message || error}`);
+    }
+    
+    // Check if we should trip the circuit breaker
+    if (puterFailureCount >= PUTER_CIRCUIT_THRESHOLD) {
+      puterCircuitOpen = true;
+      console.warn('⚠️ Puter circuit breaker tripped - will retry in 30 seconds');
+      
+      // Reset circuit after timeout
+      setTimeout(() => {
+        puterCircuitOpen = false;
+        puterFailureCount = 0;
+        console.log('✅ Puter circuit breaker reset');
+      }, PUTER_CIRCUIT_TIMEOUT);
+    }
+    
+    // Retry with exponential backoff if within retry limit
+    if (retryCount < PUTER_RETRY_DELAYS.length) {
+      const delay = PUTER_RETRY_DELAYS[retryCount];
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return speakWithPuter(text, priority, retryCount + 1);
+    }
+    
+    // All retries exhausted - use fallback
+    console.warn('⚠️ Puter TTS failed after retries, using browser fallback');
+    return speakWithWebSpeech(text, priority);
   }
 }
 
@@ -1044,6 +1113,11 @@ async function resetGame() {
       opponentComment.textContent = "Let's play! I'll crush you! ♟️";
       
       updateBoard(result.state);
+      
+      whiteTime = timeControl;
+      blackTime = timeControl;
+      gameStarted = false;
+      
       startTimerForCurrentTurn();
       updateEvaluation();
     }
@@ -1288,6 +1362,91 @@ themeSelect.addEventListener('change', (e) => changeTheme(e.target.value));
 difficultySelect.addEventListener('change', (e) => changeDifficulty(e.target.value));
 timeControlSelect.addEventListener('change', (e) => changeTimeControl(e.target.value));
 
+// Draw and Resign handlers
+const offerDrawBtn = document.getElementById('offerDrawBtn');
+const resignBtn = document.getElementById('resignBtn');
+
+let drawOffered = false;
+
+offerDrawBtn.addEventListener('click', async () => {
+  if (gameOver) return;
+  
+  if (drawOffered) {
+    alert('You have already offered a draw. Waiting for opponent response.');
+    return;
+  }
+  
+  try {
+    const response = await fetch('/api/offer-draw', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'offer', playerColor: 'white' })
+    });
+    
+    const data = await response.json();
+    
+    if (data.success) {
+      drawOffered = true;
+      offerDrawBtn.disabled = true;
+      offerDrawBtn.textContent = 'Draw Offered...';
+      
+      // AI responds to draw offer
+      const aiResponse = await fetch('/api/offer-draw', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'ai-respond', playerColor: 'white' })
+      });
+      
+      const aiData = await aiResponse.json();
+      
+      drawOffered = false;
+      offerDrawBtn.disabled = false;
+      offerDrawBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg> Offer Draw`;
+      
+      if (aiData.aiAccepted) {
+        gameOver = true;
+        document.getElementById('gameStatus').textContent = 'Game Over - Draw!';
+        showGameOverModal('Draw!', 'The game ended in a draw.');
+        saveGameToDatabase(aiData.state);
+      } else {
+        alert('AI declined the draw offer. The game continues.');
+      }
+    }
+  } catch (error) {
+    console.error('Draw offer error:', error);
+    alert('Failed to offer draw');
+  }
+});
+
+resignBtn.addEventListener('click', async () => {
+  if (gameOver) return;
+  
+  if (!confirm('Are you sure you want to resign?')) return;
+  
+  try {
+    const response = await fetch('/api/resign', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playerColor: 'white' })
+    });
+    
+    const data = await response.json();
+    
+    if (data.success) {
+      gameOver = true;
+      gameOverDisplay.textContent = data.result;
+      gameOverDisplay.classList.remove('hidden');
+      stopTimer();
+      playSound('gameOver');
+      opponentComment.textContent = "You resigned. Better luck next time!";
+      loadStats();
+    }
+  } catch (error) {
+    console.error('Resign error:', error);
+  }
+});
+
+
 const modeAiBtn = document.getElementById('modeAiBtn');
 const modePvpBtn = document.getElementById('modePvpBtn');
 const pvpColorSelect = document.getElementById('pvpColorSelect');
@@ -1411,12 +1570,24 @@ async function loadGameHistory() {
             game.result === 'win' ? 'bg-green-600 text-white' : 
             game.result === 'loss' ? 'bg-red-600 text-white' : 'bg-gray-600 text-white'
           }">${game.result === 'win' ? 'Win' : game.result === 'loss' ? 'Loss' : 'Draw'}</span>
+          <button class="replay-btn bg-teal-600 hover:bg-teal-700 text-white px-2 py-1 rounded text-sm" data-id="${game.id}">
+            Replay
+          </button>
           <button class="analyze-btn bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-sm" data-id="${game.id}">
             Analyze
           </button>
         </div>
       </div>
     `).join('');
+    
+    document.querySelectorAll('.replay-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const gameId = e.target.dataset.id;
+        console.log('Replay button clicked, gameId:', gameId);
+        historyModal.classList.add('hidden');
+        await loadGameForReplay(gameId);
+      });
+    });
     
     document.querySelectorAll('.analyze-btn').forEach(btn => {
       btn.addEventListener('click', async (e) => {
@@ -1567,6 +1738,8 @@ changePersonality = async function(personality) {
 };
 
 function updateCapturedPieces() {
+  if (!capturedWhiteEl || !capturedBlackEl) return;
+  
   const pieceOrder = ['q', 'r', 'b', 'n', 'p'];
   
   capturedWhiteEl.innerHTML = capturedWhite
@@ -1585,6 +1758,10 @@ function updateCapturedPieces() {
 function getPieceChar(type) {
   const chars = { p: '♟', r: '♜', n: '♞', b: '♝', q: '♛', k: '♚' };
   return chars[type] || type;
+}
+
+function getPieceSymbol(type) {
+  return getPieceChar(type);
 }
 
 function getPieceName(type) {
@@ -1635,6 +1812,613 @@ document.getElementById('soundEffectsAlt').addEventListener('change', (e) => {
 
 document.getElementById('explainMovesAlt').addEventListener('change', (e) => {
   explainMovesCheckbox.checked = e.target.checked;
+});
+
+const puzzleModal = document.getElementById('puzzleModal');
+const puzzleBtn = document.getElementById('puzzleBtn');
+const closePuzzleBtn = document.getElementById('closePuzzleBtn');
+const puzzleThemeSelect = document.getElementById('puzzleThemeSelect');
+const puzzleContent = document.getElementById('puzzleContent');
+const puzzleLoading = document.getElementById('puzzleLoading');
+const loadPuzzleBtn = document.getElementById('loadPuzzleBtn');
+const skipPuzzleBtn = document.getElementById('skipPuzzleBtn');
+const puzzleResult = document.getElementById('puzzleResult');
+const puzzleRatingEl = document.getElementById('puzzleRating');
+const puzzleThemeEl = document.getElementById('puzzleTheme');
+
+let currentPuzzle = null;
+let puzzleStartTime = null;
+let puzzleBoard = [];
+let puzzleSelectedSquare = null;
+let puzzleHintShown = false;
+let puzzleLegalMoves = [];
+
+const PUZZLE_FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+const PUZZLE_RANKS = ['8', '7', '6', '5', '4', '3', '2', '1'];
+
+function parsePuzzleFen(fen) {
+  const boardArray = fen.split(' ')[0].split('/');
+  const board = [];
+  
+  for (let row = 0; row < 8; row++) {
+    const rowStr = boardArray[row];
+    const rowPieces = [];
+    let col = 0;
+    
+    for (let i = 0; i < rowStr.length; i++) {
+      const char = rowStr[i];
+      const num = parseInt(char);
+      
+      if (!isNaN(num)) {
+        for (let j = 0; j < num; j++) {
+          rowPieces.push(null);
+          col++;
+        }
+      } else {
+        const isWhite = char === char.toUpperCase();
+        rowPieces.push({
+          type: char.toLowerCase(),
+          color: isWhite ? 'white' : 'black'
+        });
+        col++;
+      }
+    }
+    board.push(rowPieces);
+  }
+  return board;
+}
+
+function parseBoardFromFEN(fen) {
+  return parsePuzzleFen(fen);
+}
+
+function renderPuzzleBoard(legalMoves = []) {
+  const boardEl = document.getElementById('puzzleBoard');
+  if (!boardEl) return;
+  
+  boardEl.innerHTML = '';
+  boardEl.className = 'board theme-dark with-coordinates';
+  
+  const highlightedSquares = new Set();
+  legalMoves.forEach(move => {
+    highlightedSquares.add(move.to);
+  });
+  
+  for (let row = 0; row < 8; row++) {
+    for (let col = 0; col < 8; col++) {
+      const square = document.createElement('div');
+      const isDark = (row + col) % 2 === 1;
+      const squareName = PUZZLE_FILES[col] + PUZZLE_RANKS[row];
+      
+      square.className = `square ${isDark ? 'dark' : 'light'}`;
+      square.dataset.file = PUZZLE_FILES[col];
+      square.dataset.rank = PUZZLE_RANKS[row];
+      
+      if (puzzleSelectedSquare === squareName) {
+        square.classList.add('selected');
+      }
+      
+      if (highlightedSquares.has(squareName)) {
+        square.classList.add('highlight');
+      }
+      
+      const piece = puzzleBoard[row][col];
+      if (piece) {
+        const pieceSpan = document.createElement('span');
+        pieceSpan.className = `piece ${piece.color}`;
+        
+        const pieceChar = piece.color === 'white' ? piece.type.toUpperCase() : piece.type;
+        const pieceId = PIECE_IDS[pieceChar];
+        
+        pieceSpan.innerHTML = `<svg viewBox="0 0 40 40"><use href="/pieces/standard.svg#${pieceId}"></use></svg>`;
+        square.appendChild(pieceSpan);
+      }
+      
+      square.addEventListener('click', () => handlePuzzleSquareClick(squareName));
+      boardEl.appendChild(square);
+    }
+  }
+}
+
+function handlePuzzleSquareClick(squareName) {
+  if (!currentPuzzle) return;
+  
+  if (!puzzleSelectedSquare) {
+    const piece = getPuzzlePieceAt(squareName);
+    const turnColor = currentPuzzle.fen.split(' ')[1] === 'w' ? 'white' : 'black';
+    if (piece && piece.color === turnColor) {
+      puzzleSelectedSquare = squareName;
+      renderPuzzleBoard(puzzleLegalMoves);
+    }
+  } else {
+    const isLegalMove = puzzleLegalMoves.some(m => m.from === puzzleSelectedSquare && m.to === squareName);
+    
+    if (isLegalMove) {
+      const move = puzzleLegalMoves.find(m => m.from === puzzleSelectedSquare && m.to === squareName);
+      makePuzzleMove(move.from, move.to);
+    } else {
+      puzzleSelectedSquare = null;
+      renderPuzzleBoard(puzzleLegalMoves);
+    }
+  }
+}
+
+function getPuzzlePieceAt(square) {
+  const file = square[0];
+  const rank = square[1];
+  const col = PUZZLE_FILES.indexOf(file);
+  const row = PUZZLE_RANKS.indexOf(rank);
+  
+  if (col >= 0 && row >= 0 && puzzleBoard[row] && puzzleBoard[row][col]) {
+    return puzzleBoard[row][col];
+  }
+  return null;
+}
+
+function getCorrectMoveFromSolution(solution, legalMoves) {
+  if (!solution || !legalMoves) return null;
+  
+  // Find the first move in solution that's legal
+  for (const solMove of solution) {
+    const fromSq = solMove.substring(0, 2);
+    const toSq = solMove.substring(2, 4);
+    
+    const isLegal = legalMoves.some(m => m.from === fromSq && m.to === toSq);
+    if (isLegal) {
+      return solMove;
+    }
+  }
+  return null;
+}
+
+function makePuzzleMove(from, to) {
+  if (!currentPuzzle || !currentPuzzle.solution) return;
+  
+  const timeTaken = Math.floor((Date.now() - puzzleStartTime) / 1000);
+  const playerMove = from + to;
+  
+  // Find the correct first move from the solution (first legal move in the solution)
+  const expectedMove = getCorrectMoveFromSolution(currentPuzzle.solution, puzzleLegalMoves);
+  
+  const isCorrect = playerMove === expectedMove;
+  
+  puzzleResult.classList.remove('hidden', 'bg-green-900', 'bg-red-900');
+  
+  if (isCorrect) {
+    puzzleResult.classList.add('bg-green-900');
+    puzzleResult.textContent = 'Correct! Well done!';
+    
+    fetch('/api/puzzle/solve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        puzzleId: currentPuzzle.id,
+        theme: currentPuzzle.themes ? currentPuzzle.themes[0] : null,
+        rating: currentPuzzle.rating,
+        solution: [playerMove],
+        timeTakenSeconds: timeTaken
+      })
+    }).then(() => loadPuzzleStats());
+    
+    setTimeout(() => loadNewPuzzle(), 1500);
+  } else {
+    puzzleResult.classList.add('bg-red-900');
+    const correctMove = getCorrectMoveFromSolution(currentPuzzle.solution, puzzleLegalMoves);
+    if (correctMove) {
+      const fromSquare = correctMove.substring(0, 2);
+      const toSquare = correctMove.substring(2, 4);
+      puzzleResult.textContent = `Incorrect! The correct move was ${fromSquare} to ${toSquare}`;
+      
+      // Show hint for next time
+      puzzleHintShown = true;
+      const hintEl = document.getElementById('puzzleHint');
+      hintEl.textContent = `Correct move: ${fromSquare} to ${toSquare}`;
+      hintEl.classList.remove('hidden');
+    } else {
+      puzzleResult.textContent = 'Incorrect! Could not find solution.';
+    }
+    
+    fetch('/api/puzzle/solve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        puzzleId: currentPuzzle.id,
+        theme: currentPuzzle.themes ? currentPuzzle.themes[0] : null,
+        rating: currentPuzzle.rating,
+        solution: [],
+        timeTakenSeconds: timeTaken
+      })
+    }).then(() => loadPuzzleStats());
+    
+    puzzleSelectedSquare = null;
+    renderPuzzleBoard(puzzleLegalMoves);
+  }
+}
+
+async function loadNewPuzzle() {
+  const theme = puzzleThemeSelect.value || null;
+  
+  puzzleContent.classList.add('hidden');
+  puzzleLoading.classList.remove('hidden');
+  puzzleResult.classList.add('hidden');
+  puzzleSelectedSquare = null;
+  puzzleHintShown = false;
+  
+  try {
+    const response = await fetch(`/api/puzzle/next${theme ? '?theme=' + theme : ''}`);
+    const data = await response.json();
+    
+    if (data.success) {
+      currentPuzzle = data.puzzle;
+      puzzleBoard = parsePuzzleFen(currentPuzzle.fen);
+      puzzleStartTime = Date.now();
+      puzzleSelectedSquare = null;
+      puzzleHintShown = false;
+      
+      // Get legal moves for this position
+      puzzleLegalMoves = [];
+      try {
+        const movesResponse = await fetch(`/api/legal-moves?fen=${encodeURIComponent(currentPuzzle.fen)}`);
+        const movesData = await movesResponse.json();
+        if (movesData.success) {
+          puzzleLegalMoves = movesData.moves;
+        }
+      } catch (e) {
+        console.error('Failed to get legal moves:', e);
+      }
+      
+      puzzleRatingEl.textContent = `Rating: ${currentPuzzle.rating}`;
+      puzzleThemeEl.textContent = currentPuzzle.themes ? currentPuzzle.themes.join(', ') : '';
+      
+      // Show side to move
+      const turnColor = currentPuzzle.fen.split(' ')[1] === 'w' ? 'White' : 'Black';
+      const sideIndicator = document.getElementById('puzzleSideIndicator');
+      sideIndicator.textContent = `${turnColor} to move`;
+      sideIndicator.className = turnColor === 'White' ? 'text-white font-bold text-lg mb-2' : 'text-black font-bold text-lg mb-2';
+      
+      // Reset hint
+      document.getElementById('puzzleHint').classList.add('hidden');
+      
+      puzzleLoading.classList.add('hidden');
+      puzzleContent.classList.remove('hidden');
+      
+      renderPuzzleBoard(puzzleLegalMoves);
+    }
+  } catch (error) {
+    console.error('Failed to load puzzle:', error);
+    puzzleLoading.innerHTML = '<p class="text-red-400">Failed to load puzzle. Please try again.</p>';
+  }
+}
+
+async function loadPuzzleStats() {
+  try {
+    const response = await fetch('/api/puzzle/stats');
+    const data = await response.json();
+    
+    if (data.success) {
+      document.getElementById('puzzleTotal').textContent = data.stats.total;
+      document.getElementById('puzzleAccuracy').textContent = data.stats.accuracy + '%';
+      document.getElementById('puzzleCorrect').textContent = data.stats.correct;
+    }
+  } catch (error) {
+    console.error('Failed to load puzzle stats:', error);
+  }
+}
+
+puzzleBtn.addEventListener('click', () => {
+  puzzleModal.classList.remove('hidden');
+  loadPuzzleStats();
+  loadNewPuzzle();
+});
+
+closePuzzleBtn.addEventListener('click', () => {
+  puzzleModal.classList.add('hidden');
+});
+
+loadPuzzleBtn.addEventListener('click', loadNewPuzzle);
+
+document.getElementById('puzzleHintBtn').addEventListener('click', () => {
+  if (currentPuzzle && currentPuzzle.solution && currentPuzzle.solution.length > 0 && !puzzleHintShown) {
+    puzzleHintShown = true;
+    const hintEl = document.getElementById('puzzleHint');
+    // Find the correct first move
+    const correctMove = getCorrectMoveFromSolution(currentPuzzle.solution, puzzleLegalMoves);
+    if (correctMove) {
+      const fromSquare = correctMove.substring(0, 2);
+      const toSquare = correctMove.substring(2, 4);
+      hintEl.textContent = `Hint: Move from ${fromSquare} to ${toSquare}`;
+    } else {
+      hintEl.textContent = 'Hint: No valid move found';
+    }
+    hintEl.classList.remove('hidden');
+  }
+});
+
+skipPuzzleBtn.addEventListener('click', () => {
+  if (currentPuzzle) {
+    fetch('/api/puzzle/solve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        puzzleId: currentPuzzle.id,
+        theme: currentPuzzle.themes ? currentPuzzle.themes[0] : null,
+        rating: currentPuzzle.rating,
+        solution: [],
+        timeTakenSeconds: 0
+      })
+    });
+  }
+  loadNewPuzzle();
+});
+
+const openingModal = document.getElementById('openingModal');
+const openingBtn = document.getElementById('openingBtn');
+const closeOpeningBtn = document.getElementById('closeOpeningBtn');
+const showOpeningBtn = document.getElementById('showOpeningBtn');
+const openingContent = document.getElementById('openingContent');
+const openingLoading = document.getElementById('openingLoading');
+const openingStats = document.getElementById('openingStats');
+const openingError = document.getElementById('openingError');
+
+openingBtn.addEventListener('click', () => {
+  console.log('Opening button clicked');
+  openingModal.classList.remove('hidden');
+  openingStats.classList.add('hidden');
+  openingError.classList.add('hidden');
+  showOpeningBtn.classList.remove('hidden');
+  openingContent.classList.remove('hidden');
+});
+
+closeOpeningBtn.addEventListener('click', () => {
+  openingModal.classList.add('hidden');
+});
+
+showOpeningBtn.addEventListener('click', async () => {
+  console.log('Show opening button clicked');
+  openingContent.classList.add('hidden');
+  openingLoading.classList.remove('hidden');
+  openingError.classList.add('hidden');
+  
+  try {
+    // Get current FEN from server
+    const stateResponse = await fetch('/api/state');
+    const state = await stateResponse.json();
+    console.log('State FEN:', state.fen);
+    
+    const response = await fetch(`/api/opening?fen=${encodeURIComponent(state.fen)}`);
+    const data = await response.json();
+    console.log('Opening data:', data);
+    
+    openingLoading.classList.add('hidden');
+    
+    if (data.success && data.opening) {
+      displayOpeningData(data.opening);
+      openingStats.classList.remove('hidden');
+      openingContent.classList.remove('hidden');
+    } else {
+      openingError.classList.remove('hidden');
+      openingContent.classList.remove('hidden');
+    }
+  } catch (error) {
+    console.error('Failed to load opening data:', error);
+    openingLoading.classList.add('hidden');
+    openingError.classList.remove('hidden');
+    openingContent.classList.remove('hidden');
+  }
+});
+
+function displayOpeningData(opening) {
+  if (opening.opening) {
+    document.getElementById('openingName').textContent = opening.opening.name || 'Unknown';
+    document.getElementById('openingEco').textContent = opening.opening.eco || '';
+  } else {
+    document.getElementById('openingName').textContent = 'Unknown Position';
+    document.getElementById('openingEco').textContent = '';
+  }
+  
+  document.getElementById('openingGames').textContent = `${opening.totalGames.toLocaleString()} games`;
+  
+  const whitePercent = opening.totalGames > 0 ? ((opening.whiteGames / opening.totalGames) * 100).toFixed(1) : 0;
+  const drawPercent = opening.totalGames > 0 ? ((opening.drawGames / opening.totalGames) * 100).toFixed(1) : 0;
+  const blackPercent = opening.totalGames > 0 ? ((opening.blackGames / opening.totalGames) * 100).toFixed(1) : 0;
+  
+  document.getElementById('whiteBar').style.width = whitePercent + '%';
+  document.getElementById('drawBar').style.width = drawPercent + '%';
+  document.getElementById('blackBar').style.width = blackPercent + '%';
+  
+  document.getElementById('whitePercent').textContent = `White ${whitePercent}%`;
+  document.getElementById('drawPercent').textContent = `Draw ${drawPercent}%`;
+  document.getElementById('blackPercent').textContent = `Black ${blackPercent}%`;
+  
+  const movesContainer = document.getElementById('openingMoves');
+  movesContainer.innerHTML = '';
+  
+  if (opening.moves && opening.moves.length > 0) {
+    opening.moves.forEach((moveData, index) => {
+      const moveEl = document.createElement('div');
+      moveEl.className = 'flex items-center justify-between bg-gray-700/50 rounded-lg p-2 cursor-pointer hover:bg-gray-700 transition-colors';
+      moveEl.innerHTML = `
+        <div class="flex items-center gap-2">
+          <span class="text-gray-400 w-6">${index + 1}.</span>
+          <span class="text-white font-mono">${moveData.move}</span>
+        </div>
+        <div class="flex gap-2 text-sm">
+          <span class="text-green-400">${moveData.whitePercent}%</span>
+          <span class="text-gray-400">${moveData.drawPercent}%</span>
+          <span class="text-red-400">${moveData.blackPercent}%</span>
+        </div>
+      `;
+      movesContainer.appendChild(moveEl);
+    });
+  } else {
+    movesContainer.innerHTML = '<p class="text-gray-400 text-center">No moves found for this position.</p>';
+  }
+}
+
+const replayModal = document.getElementById('replayModal');
+const replayBoardEl = document.getElementById('replayBoard');
+const replaySlider = document.getElementById('replaySlider');
+const replayStartBtn = document.getElementById('replayStartBtn');
+const replayPrevBtn = document.getElementById('replayPrevBtn');
+const replayNextBtn = document.getElementById('replayNextBtn');
+const replayEndBtn = document.getElementById('replayEndBtn');
+const replayMoveInfo = document.getElementById('replayMoveInfo');
+const replayLastMoveEl = document.getElementById('replayLastMove');
+
+let replayPositions = [];
+let replayCurrentIndex = 0;
+
+async function loadGameForReplay(gameId) {
+  console.log('Loading replay for game:', gameId, typeof gameId);
+  
+  if (!gameId) {
+    console.error('No gameId provided');
+    alert('Invalid game ID');
+    return;
+  }
+  
+  if (!replayModal) {
+    console.error('Replay modal not found');
+    alert('Replay modal not found');
+    return;
+  }
+  
+  try {
+    const url = `/api/games/${gameId}`;
+    console.log('Fetching:', url);
+    const response = await fetch(url);
+    console.log('Response status:', response.status);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error: ${response.status}`);
+    }
+    
+    const game = await response.json();
+    console.log('Game data keys:', Object.keys(game));
+    console.log('Has positions:', !!game.positions, 'Length:', game.positions?.length);
+    console.log('Opponent:', game.opponent);
+    
+    if (!game) {
+      alert('Game not found');
+      return;
+    }
+    
+    if (!game.positions || game.positions.length === 0) {
+      alert('This game has no move history to replay. It may be incomplete.');
+      return;
+    }
+    
+    replayPositions = game.positions;
+    replayCurrentIndex = 0;
+    
+    const opponentName = game.opponent || 'Unknown';
+    const difficulty = game.difficulty || '';
+    document.getElementById('replayOpponent').textContent = `${opponentName}${difficulty ? ' (Level ' + difficulty + ')' : ''}`;
+    document.getElementById('replayDate').textContent = new Date(game.created_at).toLocaleDateString();
+    document.getElementById('replayResult').textContent = `Result: ${game.result || 'Unknown'}`;
+    
+    console.log('Setting slider max:', replayPositions.length - 1);
+    replaySlider.max = replayPositions.length - 1;
+    replaySlider.value = 0;
+    
+    updateReplayBoard();
+    replayModal.classList.remove('hidden');
+  } catch (error) {
+    console.error('Failed to load game for replay:', error);
+    alert('Failed to load game for replay: ' + error.message);
+  }
+}
+
+function updateReplayBoard() {
+  if (!replayPositions[replayCurrentIndex]) return;
+  
+  const position = replayPositions[replayCurrentIndex];
+  const board = parseBoardFromFEN(position.fen);
+  
+  renderBoardFromArray(board, replayBoardEl, true);
+  
+  const totalMoves = replayPositions.length - 1;
+  replayMoveInfo.textContent = `Move ${replayCurrentIndex} / ${totalMoves}`;
+  replaySlider.value = replayCurrentIndex;
+  
+  if (position.move && position.moveSan) {
+    const color = position.color === 'w' ? 'White' : 'Black';
+    replayLastMoveEl.textContent = `${color}: ${position.moveSan}`;
+  } else {
+    replayLastMoveEl.textContent = '';
+  }
+}
+
+function renderBoardFromArray(board, boardEl, isReplay = false) {
+  boardEl.innerHTML = '';
+  boardEl.style.gridTemplateColumns = 'repeat(8, 1fr)';
+  
+  const isFlipped = isReplay ? false : boardFlipped;
+  
+  for (let row = 0; row < 8; row++) {
+    for (let col = 0; col < 8; col++) {
+      const displayRow = isFlipped ? 7 - row : row;
+      const displayCol = isFlipped ? 7 - col : col;
+      
+      const square = document.createElement('div');
+      const isLight = (row + col) % 2 === 0;
+      square.className = `square ${isLight ? 'light' : 'dark'}`;
+      square.dataset.square = String.fromCharCode(97 + col) + (8 - row);
+      
+      const piece = board[displayRow][displayCol];
+      if (piece) {
+        const pieceSpan = document.createElement('span');
+        pieceSpan.className = `piece ${piece.color}`;
+        
+        const pieceChar = piece.color === 'white' ? piece.type.toUpperCase() : piece.type;
+        const pieceId = PIECE_IDS[pieceChar];
+        
+        pieceSpan.innerHTML = `<svg viewBox="0 0 40 40"><use href="/pieces/standard.svg#${pieceId}"></use></svg>`;
+        square.appendChild(pieceSpan);
+      }
+      
+      boardEl.appendChild(square);
+    }
+  }
+}
+
+replaySlider.addEventListener('input', (e) => {
+  replayCurrentIndex = parseInt(e.target.value);
+  updateReplayBoard();
+});
+
+replayStartBtn.addEventListener('click', () => {
+  replayCurrentIndex = 0;
+  updateReplayBoard();
+});
+
+replayPrevBtn.addEventListener('click', () => {
+  if (replayCurrentIndex > 0) {
+    replayCurrentIndex--;
+    updateReplayBoard();
+  }
+});
+
+replayNextBtn.addEventListener('click', () => {
+  if (replayCurrentIndex < replayPositions.length - 1) {
+    replayCurrentIndex++;
+    updateReplayBoard();
+  }
+});
+
+replayEndBtn.addEventListener('click', () => {
+  replayCurrentIndex = replayPositions.length - 1;
+  updateReplayBoard();
+});
+
+document.getElementById('closeReplayBtn').addEventListener('click', () => {
+  replayModal.classList.add('hidden');
+});
+
+replayModal.addEventListener('click', (e) => {
+  if (e.target === replayModal) {
+    replayModal.classList.add('hidden');
+  }
 });
 
 opponentAvatar.textContent = personalityAvatars[personalitySelect.value] || '♟️';
