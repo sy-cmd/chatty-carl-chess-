@@ -74,12 +74,13 @@ function saveGameToDatabase(state, session) {
   }
   
   try {
-    // Build PGN from history
+    // Build PGN from history with validation
     const pgn = state.history.map((move, index) => {
+      if (!move || !move.from || !move.to) return '';
       const moveNum = Math.floor(index / 2) + 1;
       const isWhite = index % 2 === 0;
       return isWhite ? `${moveNum}. ${move.from}-${move.to}` : `${move.from}-${move.to}`;
-    }).join(' ');
+    }).join(' ') || '';
     
     const result = state.result || 'unknown';
     let resultStr = 'draw';
@@ -94,6 +95,15 @@ function saveGameToDatabase(state, session) {
     const difficultyLevel = 10;
     
     const durationSeconds = gameStartTime ? Math.floor((Date.now() - gameStartTime) / 1000) : 0;
+    
+    console.log('Saving game with:', {
+      playerColor, 
+      opponent: 'Stockfish', 
+      difficulty: difficultyLevel, 
+      result: resultStr, 
+      pgnLength: pgn.length,
+      historyLength: state.history.length
+    });
     
     Database.saveGame({
       playerColor: playerColor,
@@ -185,6 +195,9 @@ app.post('/api/move', async (req, res) => {
 
     if (!req.session.gameStartTime) {
       req.session.gameStartTime = Date.now();
+    }
+    if (!req.session.currentGameMoves) {
+      req.session.currentGameMoves = [];
     }
     req.session.currentGameMoves.push({ from, to, color: 'white', timestamp: Date.now() });
 
@@ -281,6 +294,9 @@ app.post('/api/ai-move', async (req, res) => {
         
         if (stockfishMoveResult && stockfishMoveResult.success) {
           stockfishMove = { from: sfFrom, to: sfTo, color: 'black', timestamp: Date.now() };
+          if (!req.session.currentGameMoves) {
+            req.session.currentGameMoves = [];
+          }
           req.session.currentGameMoves.push(stockfishMove);
         }
       }
@@ -946,9 +962,10 @@ function savePvpGame(finalState, session) {
   }
   
   const pgn = session.currentGameMoves.map((m, i) => {
+    if (!m || !m.from || !m.to) return '';
     const moveNum = Math.floor(i / 2) + 1;
     return i % 2 === 0 ? `${moveNum}. ${m.from}-${m.to}` : `${m.from}-${m.to}`;
-  }).join(' ');
+  }).join(' ') || '';
   
   try {
     Database.saveGame({

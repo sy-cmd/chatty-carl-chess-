@@ -55,12 +55,29 @@ function saveDatabase() {
 }
 
 function saveGame(gameData) {
-  const { playerColor, opponent, difficulty, result, pgn, analysis, durationSeconds } = gameData;
+  const { 
+    playerColor = 'white', 
+    opponent = 'Stockfish', 
+    difficulty = 0, 
+    result = 'unknown', 
+    pgn = '', 
+    analysis = null, 
+    durationSeconds = 0 
+  } = gameData;
+  
+  // Validate all values to prevent SQL binding errors
+  const safePlayerColor = playerColor || 'white';
+  const safeOpponent = opponent || 'Stockfish';
+  const safeDifficulty = typeof difficulty === 'number' ? difficulty : 0;
+  const safeResult = result || 'unknown';
+  const safePgn = typeof pgn === 'string' ? pgn : '';
+  const safeAnalysis = analysis !== undefined && analysis !== null ? JSON.stringify(analysis) : null;
+  const safeDuration = typeof durationSeconds === 'number' ? durationSeconds : 0;
   
   db.run(
     `INSERT INTO games (player_color, opponent, difficulty, result, pgn, analysis, duration_seconds)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [playerColor, opponent, difficulty, result, pgn, JSON.stringify(analysis), durationSeconds]
+    [safePlayerColor, safeOpponent, safeDifficulty, safeResult, safePgn, safeAnalysis, safeDuration]
   );
   
   saveDatabase();

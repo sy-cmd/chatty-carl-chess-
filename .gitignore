@@ -5,8 +5,8 @@ node_modules/
 .env
 .env.local
 .env.*.local
-DEPLOYMENT.md
-documentation.md
+.DEPLOYMENT.md
+.documentation.md
 
 # Logs
 npm-debug.log*

@@ -148,6 +148,35 @@ let currentPersonality = 'sassy';
 let usePuterTTS = true;
 let currentAudio = null;
 
+// Puter.js connection management
+let puterFailureCount = 0;
+let puterCircuitOpen = false;
+let puterLastFailureTime = 0;
+const PUTER_CIRCUIT_THRESHOLD = 3;
+const PUTER_CIRCUIT_TIMEOUT = 30000; // 30 seconds
+const PUTER_RETRY_DELAYS = [1000, 2000, 4000]; // Exponential backoff
+
+// Monitor Puter.js connection state
+if (typeof puter !== 'undefined' && puter.socket) {
+  puter.socket.on('connect', () => {
+    puterFailureCount = 0;
+    puterCircuitOpen = false;
+    console.log('✅ Puter.js connected');
+  });
+  
+  puter.socket.on('disconnect', () => {
+    console.log('⚠️ Puter.js disconnected');
+  });
+  
+  puter.socket.on('reconnect_attempt', () => {
+    console.log('🔄 Puter.js reconnecting...');
+  });
+  
+  puter.socket.on('connect_error', (error) => {
+    console.warn('⚠️ Puter.js connection error:', error.message);
+  });
+}
+
 function loadVoices() {
   availableVoices = window.speechSynthesis.getVoices();
   voicesLoaded = availableVoices.length > 0;
@@ -327,16 +356,20 @@ const PUTER_VOICES = {
   shimmer: 'Salli'
 };
 
-async function speakWithPuter(text, priority = false) {
+async function speakWithPuter(text, priority = false, retryCount = 0) {
+  // Check circuit breaker
+  if (puterCircuitOpen) {
+    console.warn('⚠️ Puter circuit breaker open, using browser fallback');
+    return speakWithWebSpeech(text, priority);
+  }
+  
   try {
     const autoVoice = document.getElementById('autoVoice')?.checked;
     let voiceName;
     
     if (autoVoice) {
-      // Use personality-based voice
       voiceName = PUTER_VOICES[currentPersonality] || 'Joanna';
     } else {
-      // Use manually selected voice
       voiceName = selectedVoiceId || 'Joanna';
     }
     
@@ -352,6 +385,10 @@ async function speakWithPuter(text, priority = false) {
     if (!audio) {
       throw new Error('No audio returned');
     }
+    
+    // Success - reset failure count
+    puterFailureCount = 0;
+    puterCircuitOpen = false;
     
     // Stop any existing audio
     if (currentAudio) {
@@ -371,23 +408,55 @@ async function speakWithPuter(text, priority = false) {
     
     audio.onerror = (e) => {
       if (e.error !== 'abort') {
-        console.error('Puter audio error:', e);
+        console.warn('⚠️ Puter audio playback error:', e.message || e);
       }
     };
     
-    // Play audio and catch abort errors silently
     try {
       await audio.play();
     } catch (playError) {
-      // Ignore abort errors - they happen when audio is interrupted
       if (playError.name !== 'AbortError') {
-        console.error('Puter play error:', playError);
+        console.warn('⚠️ Puter play error:', playError.message || playError);
       }
     }
   } catch (error) {
-    if (error.name !== 'AbortError') {
-      console.error('Puter TTS error:', error);
+    if (error.name === 'AbortError') {
+      return; // User interrupted, don't retry
     }
+    
+    puterFailureCount++;
+    puterLastFailureTime = Date.now();
+    
+    // Log the failure
+    if (retryCount < PUTER_RETRY_DELAYS.length) {
+      console.warn(`⚠️ Puter TTS failed (attempt ${retryCount + 1}/${PUTER_RETRY_DELAYS.length + 1}): ${error.message || error}. Retrying...`);
+    } else {
+      console.error(`❌ Puter TTS failed after ${PUTER_RETRY_DELAYS.length + 1} attempts: ${error.message || error}`);
+    }
+    
+    // Check if we should trip the circuit breaker
+    if (puterFailureCount >= PUTER_CIRCUIT_THRESHOLD) {
+      puterCircuitOpen = true;
+      console.warn('⚠️ Puter circuit breaker tripped - will retry in 30 seconds');
+      
+      // Reset circuit after timeout
+      setTimeout(() => {
+        puterCircuitOpen = false;
+        puterFailureCount = 0;
+        console.log('✅ Puter circuit breaker reset');
+      }, PUTER_CIRCUIT_TIMEOUT);
+    }
+    
+    // Retry with exponential backoff if within retry limit
+    if (retryCount < PUTER_RETRY_DELAYS.length) {
+      const delay = PUTER_RETRY_DELAYS[retryCount];
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return speakWithPuter(text, priority, retryCount + 1);
+    }
+    
+    // All retries exhausted - use fallback
+    console.warn('⚠️ Puter TTS failed after retries, using browser fallback');
+    return speakWithWebSpeech(text, priority);
   }
 }
 

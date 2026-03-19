@@ -47,38 +47,38 @@ K3s Homelab Cluster
 ## Features
 
 ### Gameplay
-- ♟️ AI Mode — play against Stockfish with skill levels 0–20
-- 👥 PvP Mode — local two-player
-- ✅ Legal move highlighting and validation
-- ↩️ Undo move
-- 💡 Hint system (Stockfish-powered)
-- 🔄 Game reset and board flip
-- 👑 Promotion dialog
+-  AI Mode — play against Stockfish with skill levels 0–20
+-  PvP Mode — local two-player
+-  Legal move highlighting and validation
+- ↩ Undo move
+-  Hint system (Stockfish-powered)
+-  Game reset and board flip
+-  Promotion dialog
 
 ### AI & Engine
-- 🤖 Stockfish integration with configurable skill levels
-- 💬 LLM commentary via Groq (llama-3.1-8b-instant) — "Chatty Carl"
-- 🎭 5 AI personalities (see below)
-- 📊 Real-time evaluation bar
-- ⚠️ Mistake and blunder detection
+-  Stockfish integration with configurable skill levels
+-  LLM commentary via Groq (llama-3.1-8b-instant) — "Chatty Carl"
+-  5 AI personalities (see below)
+-  Real-time evaluation bar
+-  Mistake and blunder detection
 
 ### Voice & Sound
-- 🔊 OpenAI TTS + Web Speech API for spoken commentary
-- 📢 Spoken move notation (announce moves)
-- 🎵 Sound effects — moves, captures, check, game over
+-  OpenAI TTS + Web Speech API for spoken commentary
+-  Spoken move notation (announce moves)
+-  Sound effects — moves, captures, check, game over
 
 ### UI & Themes
-- 🎨 5 board themes — Classic, Blue, Wood, Purple, Dark
-- ⏱️ Timer with time controls — 5 min, 10 min, Blitz
-- ⚖️ Material advantage display
-- 📋 Move history
-- 🔴 Check indicator
+-  5 board themes — Classic, Blue, Wood, Purple, Dark
+-  Timer with time controls — 5 min, 10 min, Blitz
+-  Material advantage display
+-  Move history
+-  Check indicator
 
 ### Game Analysis & Data
-- 📈 Move accuracy scoring
-- 🔍 PGN-style per-move analysis
-- 📁 Game history saved to SQLite
-- 🏆 Win/loss statistics
+-  Move accuracy scoring
+-  PGN-style per-move analysis
+-  Game history saved to SQLite
+-  Win/loss statistics
 
 ---
 
