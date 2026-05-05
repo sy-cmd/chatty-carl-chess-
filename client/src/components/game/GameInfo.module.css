@@ -1,0 +1,123 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* ── Turn status ───────────────────────────────────────────────────────── */
+
+.status {
+  display: flex;
+  align-items: center;
+}
+
+.turnIndicator {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.playerTurn {
+  color: var(--color-text-primary);
+  font-weight: 500;
+}
+
+.opponentTurn {
+  color: var(--color-text-muted);
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.white {
+  background: #f5f5f5;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3);
+}
+
+.black {
+  background: #2a2a2a;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.2);
+}
+
+.gameOverBadge {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-warning);
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  border-radius: var(--radius-md);
+  padding: var(--space-1) var(--space-3);
+}
+
+/* ── Material advantage ────────────────────────────────────────────────── */
+
+.advantage {
+  font-size: var(--font-size-xs);
+}
+
+.whiteAdv {
+  color: #d4c89a;
+}
+
+.blackAdv {
+  color: var(--color-text-muted);
+}
+
+/* ── Clock ─────────────────────────────────────────────────────────────── */
+
+.clock {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  transition: border-color var(--transition-base);
+}
+
+.clockActive {
+  border-color: var(--color-accent);
+  background: var(--color-accent-muted);
+}
+
+.clockLow {
+  border-color: var(--color-danger);
+  background: rgba(248, 113, 113, 0.08);
+}
+
+.clockDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.clockLabel {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  flex: 1;
+}
+
+.clockTime {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+.clockLow .clockTime {
+  color: var(--color-danger);
+  animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}

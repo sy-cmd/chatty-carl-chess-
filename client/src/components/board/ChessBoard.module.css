@@ -1,0 +1,17 @@
+.container {
+  width: 100%;
+  max-width: min(560px, 90vw, 90vh);
+  aspect-ratio: 1;
+  margin: 0 auto;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-lg);
+  /* Prevent text selection during drag */
+  user-select: none;
+}
+
+/* react-chessboard renders its own internal wrapper; ensure full fill */
+.container > * {
+  width: 100% !important;
+  height: 100% !important;
+}

@@ -1,0 +1,130 @@
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* ── Primary action buttons ────────────────────────────────────────────── */
+
+.primaryActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+/* ── Mode toggle ───────────────────────────────────────────────────────── */
+
+.modeToggle {
+  display: flex;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  width: fit-content;
+}
+
+.modeBtn {
+  padding: var(--space-1) var(--space-4);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-sans);
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+  height: 32px;
+}
+
+.modeBtn:hover {
+  color: var(--color-text-primary);
+  background: var(--color-surface-3);
+}
+
+.modeBtnActive {
+  background: var(--color-accent);
+  color: #fff;
+}
+
+.modeBtnActive:hover {
+  background: var(--color-accent-hover);
+  color: #fff;
+}
+
+/* ── Settings panel ────────────────────────────────────────────────────── */
+
+.settingsPanel {
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  animation: slideDown 0.15s ease;
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.settingsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-4);
+  align-items: end;
+}
+
+/* ── Toggle switch ─────────────────────────────────────────────────────── */
+
+.toggle {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggleLabel {
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.toggleInput {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggleTrack {
+  display: flex;
+  align-items: center;
+  width: 40px;
+  height: 22px;
+  background: var(--color-surface-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-full);
+  padding: 2px;
+  transition: background-color var(--transition-base), border-color var(--transition-base);
+}
+
+.toggleTrackOn {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.toggleThumb {
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform var(--transition-base);
+  flex-shrink: 0;
+}
+
+.toggleTrackOn .toggleThumb {
+  transform: translateX(18px);
+}
