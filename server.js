@@ -214,13 +214,18 @@ app.post('/api/move', async (req, res) => {
     }
     
     if (stateAfterPlayerMove.gameOver) {
-      const llmComment = await generateCommentary(
-        stateAfterPlayerMove,
-        playerMoveNotation,
-        game.getPersonality(),
-        true,
-        stateAfterPlayerMove.result
-      );
+      let llmComment = null;
+      try {
+        llmComment = await generateCommentary(
+          stateAfterPlayerMove,
+          playerMoveNotation,
+          game.getPersonality(),
+          true,
+          stateAfterPlayerMove.result
+        );
+      } catch (commentaryErr) {
+        console.warn('Commentary unavailable (Groq not configured):', commentaryErr.message);
+      }
       
       saveGameToDatabase(stateAfterPlayerMove, req.session);
       
@@ -328,13 +333,18 @@ app.post('/api/ai-move', async (req, res) => {
       ? `${req.session.currentGameMoves[req.session.currentGameMoves.length - 2].from}-${req.session.currentGameMoves[req.session.currentGameMoves.length - 2].to}`
       : 'your move';
 
-    let llmComment = await generateCommentary(
-      finalState,
-      playerMoveNotation + ' ' + stockfishMoveNotation,
-      game.getPersonality(),
-      finalState.gameOver,
-      finalState.result
-    );
+    let llmComment = null;
+    try {
+      llmComment = await generateCommentary(
+        finalState,
+        playerMoveNotation + ' ' + stockfishMoveNotation,
+        game.getPersonality(),
+        finalState.gameOver,
+        finalState.result
+      );
+    } catch (commentaryErr) {
+      console.warn('Commentary unavailable (Groq not configured):', commentaryErr.message);
+    }
     
     let mistakeDetected = false;
     let blunderDetected = false;
